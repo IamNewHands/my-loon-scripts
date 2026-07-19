@@ -191,29 +191,20 @@ async function collectDatabases(ip, discovery) {
     const pathIP = encodeURIComponent(ip);
     const tasks = [
         () => requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?lang=cn`),
-        () => requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?lang=en`),
         () => discovery.ippure
             ? Promise.resolve(discovery.ippure)
             : Promise.reject(new Error(discovery.ippureError || "IPPure 请求失败")),
         () => discovery.ipapi
             ? Promise.resolve(discovery.ipapi)
             : requestJson(`${IPAPI_URL}?q=${pathIP}`, { node: "DIRECT" }),
-        () => requestJson(`https://ipinfo.io/widget/demo/${pathIP}`, { node: "DIRECT" }),
-        () => requestJson(`https://ipwho.is/${pathIP}`, { node: "DIRECT" }),
         () => requestScamalytics(pathIP),
-        () => requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?db=abuseipdb`),
         () => requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?db=ip2location`),
-        () => requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?db=ipdata`),
         () => requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?db=ipqualityscore`),
-        () => requestText(`https://www.ip2location.io/${pathIP}`, { node: "DIRECT" }),
-        () => requestJson(`https://proxycheck.io/v2/${pathIP}?vpn=1&asn=1&risk=1`, { node: "DIRECT" }),
-        () => requestText(`https://db-ip.com/${pathIP}`, { node: "DIRECT" }),
-        () => requestIpregistry(pathIP),
+        () => requestJson(`https://ipinfo.io/widget/demo/${pathIP}`, { node: "DIRECT" }),
     ];
     const keys = [
-        "maxmind", "maxmindBackup", "ippure", "ipapi", "ipinfo", "ipwhois",
-        "scamalytics", "abuseipdb", "ip2locationFull", "ipdata", "ipqs",
-        "ip2location", "proxycheck", "dbip", "ipregistry",
+        "maxmind", "ippure", "ipapi",
+        "scamalytics", "ip2locationFull", "ipqs", "ipinfo",
     ];
     if (isIPv4(ip)) {
         tasks.push(() => requestJson(
@@ -324,10 +315,10 @@ async function requestIpregistry(pathIP) {
 
 function databaseIPMismatch(key, value, expectedIP) {
     const paths = {
-        maxmind: ["IP", "ip"], maxmindBackup: ["IP", "ip"], ippure: ["ip"],
-        ipapi: ["ip"], ipinfo: ["data.ip"], ipwhois: ["ip"],
-        scamalytics: ["ip"], abuseipdb: ["data.ipAddress"],
-        ip2locationFull: ["ip"], ipdata: ["ip"], ipregistry: ["ip"], ipApiCom: ["query"],
+        maxmind: ["IP", "ip"], ippure: ["ip"],
+        ipapi: ["ip"], ipinfo: ["data.ip"],
+        scamalytics: ["ip"],
+        ip2locationFull: ["ip"], ipqs: ["ip"],
     };
     const candidates = paths[key] || [];
     let reported = "";
@@ -546,10 +537,7 @@ function buildBasic(ip, data) {
     const ippure = data.ippure && !data.ippure._egressMismatch ? data.ippure : {};
     const ip2 = getIp2location(data) || {};
     const ipinfo = data.ipinfo && data.ipinfo.data ? data.ipinfo.data : {};
-    const ipwhois = data.ipwhois && data.ipwhois.success !== false ? data.ipwhois : {};
-    const ipApiCom = data.ipApiCom && data.ipApiCom.status === "success" ? data.ipApiCom : {};
-    const proxycheck = proxycheckRecord(data.proxycheck) || {};
-    const maxmind = mergeFallback(data.maxmind, data.maxmindBackup) || {};
+    const maxmind = data.maxmind || {};
     const maxmindASN = maxmind.ASN || {};
     const maxmindCity = maxmind.City || {};
     const maxmindCountry = maxmind.Country || {};
@@ -572,11 +560,8 @@ function buildBasic(ip, data) {
         { source: "MaxMind", countryCode: cleanValue(maxmindRegion.IsoCode), countryName: cleanValue(maxmindRegion.Name), registeredCode: cleanValue(maxmindRegistered.IsoCode), registeredName: cleanValue(maxmindRegistered.Name), cityParts: maxmindCityParts, asn: cleanASN(maxmindASN.AutonomousSystemNumber), organization: cleanValue(maxmindASN.AutonomousSystemOrganization), latitude: numberOrNull(maxmindCity.Latitude), longitude: numberOrNull(maxmindCity.Longitude), timezone: cleanValue(valueAt(maxmindCity, "Location.TimeZone")), route: cleanValue(maxmindASN.Network) || cleanValue(maxmind.Network) },
         { source: "IPinfo", countryCode: cleanValue(ipinfo.country), countryName: cleanValue(ipinfo.country_name), registeredCode: cleanValue(valueAt(ipinfo, "abuse.country")), registeredName: "", cityParts: uniqueValues([ipinfo.region, ipinfo.city]), asn: cleanASN(valueAt(ipinfo, "asn.asn")), organization: cleanValue(valueAt(ipinfo, "asn.name")), latitude: numberOrNull(splitCoordinate(ipinfo.loc, 0)), longitude: numberOrNull(splitCoordinate(ipinfo.loc, 1)), timezone: cleanValue(ipinfo.timezone), route: cleanValue(valueAt(ipinfo, "asn.route")) },
         { source: "ipapi", countryCode: cleanValue(location.country_code), countryName: cleanValue(location.country), registeredCode: "", registeredName: "", cityParts: uniqueValues([location.state, location.city]), asn: cleanASN(asn.asn), organization: cleanValue(asn.org), latitude: numberOrNull(location.latitude), longitude: numberOrNull(location.longitude), timezone: cleanValue(location.timezone), route: cleanValue(asn.route) },
-        { source: "IPWhois", countryCode: cleanValue(ipwhois.country_code), countryName: cleanValue(ipwhois.country), registeredCode: "", registeredName: "", cityParts: uniqueValues([ipwhois.region, ipwhois.city]), asn: cleanASN(valueAt(ipwhois, "connection.asn")), organization: cleanValue(valueAt(ipwhois, "connection.org")), latitude: numberOrNull(ipwhois.latitude), longitude: numberOrNull(ipwhois.longitude), timezone: cleanValue(valueAt(ipwhois, "timezone.id")), route: "" },
-        { source: "ip-api", countryCode: cleanValue(ipApiCom.countryCode), countryName: cleanValue(ipApiCom.country), registeredCode: "", registeredName: "", cityParts: uniqueValues([ipApiCom.regionName, ipApiCom.city]), asn: cleanASN(ipApiCom.as), organization: cleanValue(ipApiCom.asname) || cleanValue(ipApiCom.org), latitude: numberOrNull(ipApiCom.lat), longitude: numberOrNull(ipApiCom.lon), timezone: cleanValue(ipApiCom.timezone), route: "" },
         { source: "IPPure", countryCode: cleanValue(ippure.countryCode), countryName: cleanValue(ippure.country), registeredCode: "", registeredName: "", cityParts: uniqueValues([ippure.city]), asn: cleanASN(ippure.asn), organization: cleanValue(ippure.asOrganization), latitude: numberOrNull(ippure.latitude), longitude: numberOrNull(ippure.longitude), timezone: cleanValue(ippure.timezone), route: "" },
         { source: "IP2Location", countryCode: cleanValue(ip2.country_code), countryName: cleanValue(ip2.country_name), registeredCode: "", registeredName: "", cityParts: uniqueValues([ip2.city_name]), asn: cleanASN(ip2.asn), organization: cleanValue(ip2.as), latitude: numberOrNull(ip2.latitude), longitude: numberOrNull(ip2.longitude), timezone: cleanValue(ip2.time_zone), route: "" },
-        { source: "proxycheck", countryCode: cleanValue(proxycheck.isocode), countryName: cleanValue(proxycheck.country), registeredCode: "", registeredName: "", cityParts: uniqueValues([proxycheck.region, proxycheck.city]), asn: cleanASN(proxycheck.asn), organization: cleanValue(proxycheck.organisation), latitude: numberOrNull(proxycheck.latitude), longitude: numberOrNull(proxycheck.longitude), timezone: cleanValue(proxycheck.timezone), route: cleanValue(proxycheck.range) },
     ];
     const profile = profiles.find((item) => item.countryCode || item.countryName)
         || profiles.find((item) => item.asn || item.organization || item.cityParts.length)
@@ -1062,22 +1047,13 @@ function postMapNotification(basic, displayNodeName) {
 // ============== 以下为原文件保留的辅助函数 ==============
 
 function buildTypes(data) {
-    const ipinfo = data.ipinfo && data.ipinfo.data ? data.ipinfo.data : null;
-    const ipregistry = parseIpregistry(data.ipregistry);
     const ip2 = getIp2location(data);
     const ipqs = data.ipqs && data.ipqs.success !== false ? data.ipqs : null;
-    const abuseipdb = data.abuseipdb && data.abuseipdb.data ? data.abuseipdb.data : null;
-    const ipdata = data.ipdata;
-    const proxycheck = proxycheckRecord(data.proxycheck);
     const ippure = data.ippure && !data.ippure._egressMismatch ? data.ippure : {};
     return [
         typeRow("IP2Location", ip2 ? ip2.usage_type : null, null),
         typeRow("ipapi", valueAt(data.ipapi, "location.country_code") ? valueAt(data.ipapi, "asn.type") : null, null),
-        typeRow("ipregistry", ipregistry ? ipregistry.usageType : null, ipregistry ? ipregistry.companyType : null),
         typeRow("IPQS", ipqs ? ipqs.connection_type : null, null),
-        typeRow("AbuseIPDB", abuseipdb ? abuseipdb.usageType : null, null),
-        typeRow("ipdata", ipdata ? ipdata.usage_type : null, null),
-        typeRow("proxycheck", proxycheck ? proxycheck.type : null, null),
         typeRow("IPPure", ippure ? ippure.usageType : null, null),
     ].filter((r) => r.usage || r.company);
 }
@@ -1088,36 +1064,22 @@ function buildRisks(data) {
     const scam = scamRoot && scamRoot.scamalytics ? scamRoot.scamalytics : null;
     const ip2 = getIp2location(data);
     const ipapi = data.ipapi;
-    const ipregistry = parseIpregistry(data.ipregistry);
-    const abuseipdb = data.abuseipdb && data.abuseipdb.data ? data.abuseipdb.data : null;
-    const proxycheck = proxycheckRecord(data.proxycheck);
-    const ipdata = data.ipdata;
-    const dbip = parseDbip(data.dbip);
-    const dbipRisk = parseDbipRisk(data.dbip);
     return [
         ipqs ? scoreRisk("IPQS", ipqs.fraud_score, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : unavailableRisk("IPQS"),
         scam ? scoreRisk("Scamalytics", scam.scamalytics_score, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : unavailableRisk("Scamalytics"),
         ip2 ? scoreRisk("IP2Location", ip2.fraud_score, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : unavailableRisk("IP2Location"),
         ipapi ? (ipapi.risk_score != null ? scoreRisk("ipapi", ipapi.risk_score, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : (ipapi.risk_level ? { name: "ipapi", available: true, severity: ipapiSeverity(ipapi.risk_level), label: translateRisk(ipapi.risk_level), detail: String(ipapi.risk_level || "") } : unavailableRisk("ipapi"))) : unavailableRisk("ipapi"),
-        ipregistry ? (ipregistry.threat ? { name: "ipregistry", available: true, severity: 3, label: "有威胁", detail: "security.is_threat" } : { name: "ipregistry", available: true, severity: 0, label: "无威胁", detail: "" }) : unavailableRisk("ipregistry"),
-        proxycheck ? scoreRisk("proxycheck", proxycheck.risk, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : unavailableRisk("proxycheck"),
-        ipdata ? (ipdata.risk_score != null ? scoreRisk("ipdata", ipdata.risk_score, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : (ipdata.risk_level ? { name: "ipdata", available: true, severity: ipapiSeverity(ipdata.risk_level), label: translateRisk(ipdata.risk_level), detail: String(ipdata.risk_level || "") } : unavailableRisk("ipdata"))) : unavailableRisk("ipdata"),
-        abuseipdb ? scoreRisk("AbuseIPDB", abuseipdb.abuseConfidenceScore, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : unavailableRisk("AbuseIPDB"),
-        dbip ? { name: "DB-IP", available: true, severity: dbipRisk === "high" ? 3 : dbipRisk === "medium" ? 2 : 0, label: dbipRisk === "high" ? "高风险" : dbipRisk === "medium" ? "中风险" : "低风险", detail: dbipRisk } : unavailableRisk("DB-IP"),
     ].filter(Boolean);
 }
 
 function buildFactors(data) {
     const ipinfo = data.ipinfo && data.ipinfo.data ? data.ipinfo.data : null;
-    const ipregistry = parseIpregistry(data.ipregistry);
     const ipapi = data.ipapi;
     const ip2 = getIp2location(data);
-    const dbip = parseDbip(data.dbip);
     const ip2Proxy = ip2 && ip2.proxy ? ip2.proxy : {};
     const ipqs = data.ipqs && data.ipqs.success !== false ? data.ipqs : null;
     const scamRoot = data.scamalytics;
     const scam = scamRoot && scamRoot.scamalytics ? scamRoot.scamalytics : null;
-    const ipdata = data.ipdata;
     return [
         factorSource("IP2Location", ip2 ? {
             country: ip2.country_code,
@@ -1127,10 +1089,6 @@ function buildFactors(data) {
             country: valueAt(ipapi, "location.country_code"),
             checks: { VPN: ipapi.is_vpn, 代理: ipapi.is_proxy, Tor: ipapi.is_tor, 机房: ipapi.is_datacenter, 滥用: ipapi.is_abuser, 爬虫: ipapi.is_crawler },
         } : null),
-        factorSource("ipregistry", ipregistry ? {
-            country: ipregistry.country,
-            checks: { VPN: ipregistry.vpn, 代理: ipregistry.proxy, Tor: ipregistry.tor, 中继: ipregistry.relay, 机房: ipregistry.server, 滥用: ipregistry.abuser, 匿名: ipregistry.anonymous, 威胁: ipregistry.threat },
-        } : null),
         factorSource("IPQS", ipqs ? {
             country: ipqs.country_code,
             checks: { 代理: ipqs.proxy, Tor: ipqs.tor, VPN: ipqs.vpn, 机房: null, 滥用: ipqs.recent_abuse, 机器人: ipqs.bot_status },
@@ -1139,17 +1097,9 @@ function buildFactors(data) {
             country: valueAt(scamRoot, "external_datasources.maxmind_geolite2.ip_country_code"),
             checks: { 代理: valueAt(scamRoot, "external_datasources.firehol.is_proxy"), Tor: valueAt(scamRoot, "external_datasources.x4bnet.is_tor"), VPN: valueAt(scam, "scamalytics_proxy.is_vpn"), 机房: valueAt(scam, "scamalytics_proxy.is_datacenter"), 滥用: scam.is_blacklisted_external, 机器人: anyTrue([valueAt(scamRoot, "external_datasources.x4bnet.is_blacklisted_spambot"), valueAt(scamRoot, "external_datasources.x4bnet.is_bot_operamini"), valueAt(scamRoot, "external_datasources.x4bnet.is_bot_semrush")]) },
         } : null),
-        factorSource("ipdata", ipdata ? {
-            country: ipdata.country_code,
-            checks: { 代理: valueAt(ipdata, "threat.is_proxy"), Tor: valueAt(ipdata, "threat.is_tor"), 机房: valueAt(ipdata, "threat.is_datacenter"), 滥用: anyTrue([valueAt(ipdata, "threat.is_threat"), valueAt(ipdata, "threat.is_known_abuser"), valueAt(ipdata, "threat.is_known_attacker")]), 匿名: valueAt(ipdata, "threat.is_anonymous") },
-        } : null),
         factorSource("IPinfo", ipinfo ? {
             country: ipinfo.country,
             checks: { VPN: valueAt(ipinfo, "privacy.vpn"), 代理: valueAt(ipinfo, "privacy.proxy"), Tor: valueAt(ipinfo, "privacy.tor"), 中继: valueAt(ipinfo, "privacy.relay"), 机房: valueAt(ipinfo, "privacy.hosting") },
-        } : null),
-        factorSource("DB-IP", dbip ? {
-            country: dbip.country,
-            checks: { 代理: dbip.proxy, 爬虫: dbip.robot, 攻击源: dbip.abuser },
         } : null),
     ].filter((s) => s.available);
 }
@@ -1306,21 +1256,14 @@ function buildAudit(data) {
     const ipqsSkipped = ipqsUpstreamUnavailable(data);
     const ippureMismatch = !!(data.ippure && data.ippure._egressMismatch);
     const checks = [
-        ["MaxMind", !!((data.maxmind && (data.maxmind.Country || data.maxmind.ASN)) || (data.maxmindBackup && (data.maxmindBackup.Country || data.maxmindBackup.ASN)))],
+        ["MaxMind", !!(data.maxmind && (data.maxmind.Country || data.maxmind.ASN))],
         ippureMismatch ? null : ["IPPure", !!(data.ippure && data.ippure.ip)],
         ["ipapi", !!(data.ipapi && data.ipapi.ip)],
         ["IPinfo", !!(data.ipinfo && data.ipinfo.data)],
-        ["IPWhois", !!(data.ipwhois && data.ipwhois.success !== false && (data.ipwhois.ip || data.ipwhois.country_code || data.ipwhois.connection))],
         ["IP2Location", !!getIp2location(data)],
         ["Scamalytics", !!(data.scamalytics && numberOrNull(valueAt(data.scamalytics, "scamalytics.scamalytics_score")) !== null)],
-        ["AbuseIPDB", !!(data.abuseipdb && data.abuseipdb.data && (cleanValue(data.abuseipdb.data.usageType) || numberOrNull(data.abuseipdb.data.abuseConfidenceScore) !== null))],
         ipqsSkipped ? null : ["IPQS", !!(data.ipqs && data.ipqs.success !== false && numberOrNull(data.ipqs.fraud_score) !== null)],
-        ["ipdata", !!(data.ipdata && (data.ipdata.ip || data.ipdata.country_code))],
-        ["proxycheck", !!proxycheckRecord(data.proxycheck)],
-        ["ipregistry", !!parseIpregistry(data.ipregistry)],
-        ["DB-IP", !!(parseDbipRisk(data.dbip) || parseDbip(data.dbip))],
     ].filter(Boolean);
-    if (Object.prototype.hasOwnProperty.call(data, "ipApiCom")) checks.push(["ip-api", !!(data.ipApiCom && data.ipApiCom.status === "success")]);
     return {
         total: checks.length,
         success: checks.filter((c) => c[1]).map((c) => c[0]),
