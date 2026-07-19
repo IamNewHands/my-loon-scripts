@@ -230,6 +230,8 @@ function renderNow(ip, basic, ipType, risks, flags, media, audit, titleColor, di
     });
 }
 
+function maskIPAddress(ip) { if (!maskIP || !ip) return ip; const t = String(ip); const p = t.split("."); if (p.length === 4) return `${p[0]}.${p[1]}.*.*`; const v6 = t.split(":"); return v6.length > 3 ? `${v6.slice(0, 4).join(":")}:*` : t; }
+
 // ============== 汇总函数 ==============
 
 function buildBasicSummary(ip, data) {
@@ -494,7 +496,6 @@ function mediaStatus(status) {
 }
 
 function esc(text) { return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
-function maskIPAddress(ip) { if (!maskIP || !ip) return ip; const t = String(ip); const p = t.split("."); if (p.length === 4) return `${p[0]}.${p[1]}.*.*`; const v6 = t.split(":"); return v6.length > 3 ? `${v6.slice(0, 4).join(":")}:*` : t; }
 function infoLine(l, v) { return `<div style="margin-bottom:6px;line-height:1.4"><span style="color:#8e8e93;font-size:12px">${esc(l)}</span>&nbsp;&nbsp;<span style="font-weight:600">${esc(v)}</span></div>`; }
 function mutedLine(v) { return `<div style="color:#8e8e93;font-size:11px;margin:5px 0;line-height:1.45">${esc(v)}</div>`; }
 function browserHeaders() { return { Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9", "User-Agent": USER_AGENT }; }
