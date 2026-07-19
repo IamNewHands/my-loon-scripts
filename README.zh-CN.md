@@ -2,7 +2,7 @@
 
 个人自用 Loon 插件/脚本合集。
 
-每个插件的详细说明见对应文件夹内的 README.md。
+每个插件的详细说明见对应文件夹内的 README。
 
 ## 目录
 
@@ -23,6 +23,7 @@
 ```
 my-loon-scripts/
 ├── README.md
+├── README.zh-CN.md
 ├── LICENSE
 └── loon/
     └── ipquality/
