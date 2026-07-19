@@ -49,7 +49,11 @@ async function run() {
     const cacheKey = `result_${ip}`;
     const cached = cacheGet(cacheKey);
     if (cached) { log(`使用缓存: ${ip}`); render(ip, cached); return; }
-    const data = await collectDatabases(ip, discovery);
+    const [data, media] = await Promise.all([
+        collectDatabases(ip, discovery),
+        mediaEnabled ? collectMedia() : Promise.resolve(null),
+    ]);
+    data._media = media;
     cacheSet(cacheKey, data);
     render(ip, data);
 }
@@ -181,40 +185,20 @@ function render(ip, data) {
     const risks = buildRiskSummary(data);
     const flags = buildFlagSummary(data);
     const audit = buildAuditSummary(data);
+    const media = data._media;
     const titleColor = risks.highest >= 3 ? "#ff453a" : risks.highest >= 2 ? "#ff9f0a" : "#30d158";
     const displayNodeName = truncateText(nodeName, 30);
 
-    if (mediaEnabled) {
-        // 先显示基础信息，流媒体异步加载后自动更新
-        renderNow(ip, basic, ipType, risks, flags, null, audit, titleColor, displayNodeName);
-        // 流媒体结果通过 $notification 或缓存方式返回
-        collectMedia().then((m) => {
-            data._media = m;
-            // 用 $notification 补充显示流媒体结果
-            const yes = m.filter((r) => r.status === "yes").length;
-            const no = m.filter((r) => r.status === "no").length;
-            const msg = `解锁 ${yes} 个 · 不可用 ${no} 个 · 未确认 ${m.length - yes - no} 个`;
-            if (mapNotificationEnabled) {
-                try { $notification.post("流媒体检测完成", msg, ""); } catch (_) {}
-            }
-        }).catch(() => {});
-    } else {
-        renderNow(ip, basic, ipType, risks, flags, null, audit, titleColor, displayNodeName);
-    }
-}
-
-function renderNow(ip, basic, ipType, risks, flags, media, audit, titleColor, displayNodeName) {
     const html = [
         '<div style="font-family:-apple-system,BlinkMacSystemFont;font-size:14px;line-height:1.5;text-align:left;overflow-wrap:anywhere">',
         '<div style="height:18px"></div>',
         '<div style="font-size:20px;font-weight:700;margin-bottom:16px">节点 IP 质量检测</div>',
         `<div style="color:#8e8e93;font-size:11px;margin-bottom:10px">节点 · ${esc(displayNodeName)}</div>`,
         summaryCard(basic),
-        section("基础信息", renderBasicSummary(basic)),
         section("IP 类型", renderTypeSummary(ipType)),
         section("风险评分", renderRiskSummary(risks)),
         collapsibleSection("风险标记", renderFlagSummary(flags)),
-        section("流媒体与 AI", media ? renderMediaSummary(media) : mutedLine("流媒体检测中，请稍后查看通知…")),
+        media ? section("流媒体与 AI", renderMediaSummary(media)) : "",
         section("数据状态", renderAuditSummary(audit)),
         '<div style="height:9px"></div>',
         `<div style="color:#8e8e93;font-size:10px;line-height:1.45">多源汇总展示，去重合并。各库结果独立，不生成综合结论。</div>`,
