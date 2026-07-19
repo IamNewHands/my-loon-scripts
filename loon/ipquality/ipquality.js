@@ -92,22 +92,21 @@ async function run() {
 
 // 限制并发数的 Promise.all
 async function limitedConcurrency(tasks, limit) {
-    const results = [];
-    const executing = [];
-    for (let i = 0; i < tasks.length; i++) {
-        const p = Promise.resolve(tasks[i]()).then((value) => {
-            results[i] = { ok: true, value };
-            return value;
-        }, (error) => {
-            results[i] = { ok: false, error: errorMessage(error) };
-        });
-        executing.push(p);
-        if (executing.length >= limit) {
-            await Promise.race(executing);
-            executing.splice(0, executing.findIndex((e) => e === p) + 1);
+    const results = new Array(tasks.length);
+    let index = 0;
+    async function worker() {
+        while (index < tasks.length) {
+            const i = index++;
+            try {
+                const value = await tasks[i]();
+                results[i] = { ok: true, value };
+            } catch (error) {
+                results[i] = { ok: false, error: errorMessage(error) };
+            }
         }
     }
-    await Promise.all(executing);
+    const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
+    await Promise.all(workers);
     return results;
 }
 
