@@ -16,18 +16,19 @@ const nodeName = params.node || "";
 
 console.log(`节点解锁查询 - 节点: ${nodeName || "未获取"}`);
 
+// result 定义在外层，所有函数都能访问
+let result = {
+  title: "节点解锁查询",
+  Netflix: "<b>Netflix: </b>检测失败 ❗️",
+  Disney: "<b>Disney+: </b>检测失败 ❗️",
+  YouTube: "<b>YouTube: </b>检测失败 ❗️",
+  ChatGPT: "<b>ChatGPT: </b>检测失败 ❗️",
+  TikTok: "<b>TikTok: </b>检测失败 ❗️",
+};
+
 if (!nodeName) {
   $done({ title: "节点解锁查询", htmlMessage: '<p style="text-align:center;color:#ff3b30;font-family:-apple-system;font-size:14px;padding:40px 20px">未获取到节点名称</p>' });
 } else {
-  let result = {
-    title: "节点解锁查询",
-    Netflix: "<b>Netflix: </b>检测失败 ❗️",
-    Disney: "<b>Disney+: </b>检测失败 ❗️",
-    YouTube: "<b>YouTube: </b>检测失败 ❗️",
-    ChatGPT: "<b>ChatGPT: </b>检测失败 ❗️",
-    TikTok: "<b>TikTok: </b>检测失败 ❗️",
-  };
-
   Promise.all([testNetflix(), testDisney(), testYouTube(), testChatGPT(), testTikTok()]).then(() => {
     const content = "------------------------------------<br>" +
       [result.Disney, result.Netflix, result.YouTube, result.ChatGPT, result.TikTok].join("<br><br>") +
