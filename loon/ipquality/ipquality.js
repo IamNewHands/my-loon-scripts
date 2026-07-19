@@ -176,35 +176,34 @@ async function requestScamalytics(pathIP) {
 // ============== 渲染（去重汇总版） ==============
 
 function render(ip, data) {
-    // 1. 汇总基础信息（多源合并去重）
     const basic = buildBasicSummary(ip, data);
-    // 2. 汇总 IP 类型（多源合并）
     const ipType = buildTypeSummary(data);
-    // 3. 汇总风险评分
     const risks = buildRiskSummary(data);
-    // 4. 汇总风险标记（多源合并去重）
     const flags = buildFlagSummary(data);
-    // 5. 流媒体
-    const media = mediaEnabled ? [] : null;
-    // 6. 审计
     const audit = buildAuditSummary(data);
-
     const titleColor = risks.highest >= 3 ? "#ff453a" : risks.highest >= 2 ? "#ff9f0a" : "#30d158";
     const displayNodeName = truncateText(nodeName, 30);
 
-    // 异步跑流媒体
     if (mediaEnabled) {
+        // 先显示基础信息，流媒体异步加载后自动更新
+        renderNow(ip, basic, ipType, risks, flags, null, audit, titleColor, displayNodeName);
+        // 流媒体结果通过 $notification 或缓存方式返回
         collectMedia().then((m) => {
             data._media = m;
-            // 重新渲染带流媒体
-            renderFull(ip, basic, ipType, risks, flags, m, audit, titleColor, displayNodeName);
+            // 用 $notification 补充显示流媒体结果
+            const yes = m.filter((r) => r.status === "yes").length;
+            const no = m.filter((r) => r.status === "no").length;
+            const msg = `解锁 ${yes} 个 · 不可用 ${no} 个 · 未确认 ${m.length - yes - no} 个`;
+            if (mapNotificationEnabled) {
+                try { $notification.post("流媒体检测完成", msg, ""); } catch (_) {}
+            }
         }).catch(() => {});
+    } else {
+        renderNow(ip, basic, ipType, risks, flags, null, audit, titleColor, displayNodeName);
     }
-
-    renderFull(ip, basic, ipType, risks, flags, media, audit, titleColor, displayNodeName);
 }
 
-function renderFull(ip, basic, ipType, risks, flags, media, audit, titleColor, displayNodeName) {
+function renderNow(ip, basic, ipType, risks, flags, media, audit, titleColor, displayNodeName) {
     const html = [
         '<div style="font-family:-apple-system,BlinkMacSystemFont;font-size:14px;line-height:1.5;text-align:left;overflow-wrap:anywhere">',
         '<div style="height:18px"></div>',
@@ -215,7 +214,7 @@ function renderFull(ip, basic, ipType, risks, flags, media, audit, titleColor, d
         section("IP 类型", renderTypeSummary(ipType)),
         section("风险评分", renderRiskSummary(risks)),
         collapsibleSection("风险标记", renderFlagSummary(flags)),
-        media ? section("流媒体与 AI", renderMediaSummary(media)) : "",
+        section("流媒体与 AI", media ? renderMediaSummary(media) : mutedLine("流媒体检测中，请稍后查看通知…")),
         section("数据状态", renderAuditSummary(audit)),
         '<div style="height:9px"></div>',
         `<div style="color:#8e8e93;font-size:10px;line-height:1.45">多源汇总展示，去重合并。各库结果独立，不生成综合结论。</div>`,
@@ -495,6 +494,7 @@ function mediaStatus(status) {
 }
 
 function esc(text) { return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function maskIPAddress(ip) { if (!maskIP || !ip) return ip; const t = String(ip); const p = t.split("."); if (p.length === 4) return `${p[0]}.${p[1]}.*.*`; const v6 = t.split(":"); return v6.length > 3 ? `${v6.slice(0, 4).join(":")}:*` : t; }
 function infoLine(l, v) { return `<div style="margin-bottom:6px;line-height:1.4"><span style="color:#8e8e93;font-size:12px">${esc(l)}</span>&nbsp;&nbsp;<span style="font-weight:600">${esc(v)}</span></div>`; }
 function mutedLine(v) { return `<div style="color:#8e8e93;font-size:11px;margin:5px 0;line-height:1.45">${esc(v)}</div>`; }
 function browserHeaders() { return { Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9", "User-Agent": USER_AGENT }; }
