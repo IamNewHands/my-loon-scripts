@@ -90,23 +90,24 @@ async function run() {
     render(ip, databaseData, mediaResults);
 }
 
-// 限制并发数的 Promise.all
+// 限制并发数的 Promise.all — 改用简单的批量分块方式
 async function limitedConcurrency(tasks, limit) {
+    if (!tasks || tasks.length === 0) return [];
     const results = new Array(tasks.length);
-    let index = 0;
-    async function worker() {
-        while (index < tasks.length) {
-            const i = index++;
-            try {
-                const value = await tasks[i]();
-                results[i] = { ok: true, value };
-            } catch (error) {
-                results[i] = { ok: false, error: errorMessage(error) };
-            }
+    for (let start = 0; start < tasks.length; start += limit) {
+        const end = Math.min(start + limit, tasks.length);
+        const batch = [];
+        for (let i = start; i < end; i++) {
+            const idx = i;
+            batch.push(
+                Promise.resolve(tasks[idx]()).then(
+                    (value) => { results[idx] = { ok: true, value }; },
+                    (error) => { results[idx] = { ok: false, error: errorMessage(error) }; }
+                )
+            );
         }
+        await Promise.all(batch);
     }
-    const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
-    await Promise.all(workers);
     return results;
 }
 
