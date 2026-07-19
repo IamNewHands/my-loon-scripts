@@ -29,7 +29,3 @@ my-loon-scripts/
         ├── unlock.js          # 节点解锁查询
         └── risk.js            # 风险评分查询
 ```
-
-## 许可证
-
-MIT

@@ -1,7 +1,6 @@
 /**
  * 地理位置查询 - 检测节点出口 IP 地理位置
  * 
- * 参考: https://github.com/KOP-XIAO/QuantumultX
  * 数据源: ip-api.com
  * 
  * [Script]

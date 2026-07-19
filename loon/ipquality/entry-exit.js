@@ -1,7 +1,6 @@
 /**
  * 入口落地查询 - 检测节点入口和出口 IP 信息
  * 
- * 参考: https://github.com/Moli-X/Tool
  * 数据源: ip-api.com
  * 
  * [Script]

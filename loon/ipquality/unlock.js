@@ -1,6 +1,5 @@
 /**
  * 节点解锁查询
- * 参考: https://github.com/KOP-XIAO/QuantumultX
  * 检测: Netflix / Disney+ / YouTube / ChatGPT / TikTok
  * 
  * [Script]
