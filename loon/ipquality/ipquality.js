@@ -1,5 +1,5 @@
 /**
- * 节点 IP 质量检测 · Loon generic 脚本（优化版）
+ * 节点 IP 质量检测 · Loon generic 脚本（精简去重版）
  *
  * 使用:在 Loon 的节点或策略组页面对目标执行「节点 IP 质量检测」
  *
@@ -7,7 +7,6 @@
  * @Optimized: IamNewHands
  * @Reference: @Roddy-D <https://github.com/Roddy-D/Loon_plugins>
  * @Reference: @xykt <https://github.com/xykt/IPQuality>
- * @Channel: Telegram 频道 https://t.me/mayihei
  * @Updated: 2026-07-19
  *
  * ===== Loon =====
@@ -15,82 +14,47 @@
  * generic script-path=https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/ipquality/ipquality.js, tag=节点 IP 质量检测, timeout=50, img-url=shield.lefthalf.filled.system, enable=true
  */
 
-const SCRIPT_VERSION = "2026-07-19.r8-opt";
+const SCRIPT_VERSION = "2026-07-19.r9-opt";
 const IPPURE_URL = "https://my.ippure.com/v1/info";
 const IPIFY_URL = "https://api4.ipify.org?format=json";
 const IPAPI_URL = "https://api.ipapi.is/";
-const IPAPI_COM_URL = "http://ip-api.com/json/";
 const IPQUALITY_BACKEND = "https://ipinfo.check.place";
 const USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1";
 const DISNEY_CLIENT_TOKEN = "ZGlzbmV5JmJyb3dzZXImMS4wLjA.Cu56AgSfBTDag5NiRA81oLHkDZfu5L3CKadnefEAY84";
-const MAX_CONCURRENCY = 5;
-const CACHE_TTL_MS = 180000; // 3 分钟缓存
+const MAX_CONCURRENCY = 4;
+const CACHE_TTL_MS = 180000;
 
-const params = typeof $environment !== "undefined" && $environment.params
-    ? $environment.params
-    : {};
+const params = typeof $environment !== "undefined" && $environment.params ? $environment.params : {};
 const nodeName = params.node || "";
 const maskIP = readSwitch("MaskIP", false);
 const mediaEnabled = readSwitch("MediaTest", true);
 const mapNotificationEnabled = readSwitch("MapNotification", false);
 
-// 简易内存缓存
 const _cache = new Map();
-
-function cacheGet(key) {
-    const entry = _cache.get(key);
-    if (entry && Date.now() - entry.ts < CACHE_TTL_MS) return entry.data;
-    _cache.delete(key);
-    return null;
-}
-
-function cacheSet(key, data) {
-    _cache.set(key, { data, ts: Date.now() });
-}
+function cacheGet(key) { const e = _cache.get(key); if (e && Date.now() - e.ts < CACHE_TTL_MS) return e.data; _cache.delete(key); return null; }
+function cacheSet(key, data) { _cache.set(key, { data, ts: Date.now() }); }
 
 log(`节点 IP 质量检测 ${SCRIPT_VERSION}`);
 log(`节点: ${nodeName || "未获取"}`);
 
-if (!nodeName) {
-    finishError("未获取到节点或策略组名称");
-} else {
-    run().catch((error) => finishError(`检测异常: ${errorMessage(error)}`));
-}
+if (!nodeName) { finishError("未获取到节点或策略组名称"); } else { run().catch((e) => finishError(`检测异常: ${errorMessage(e)}`)); }
 
-function log(msg) {
-    console.log(`[INFO] ${msg}`);
-}
-
-function warn(msg) {
-    console.log(`[WARN] ${msg}`);
-}
-
-function errLog(msg) {
-    console.log(`[ERROR] ${msg}`);
-}
+function log(m) { console.log(`[INFO] ${m}`); }
+function warn(m) { console.log(`[WARN] ${m}`); }
 
 async function run() {
     const discovery = await discoverIP();
     if (!discovery.ip) throw new Error("无法获取所选节点的出口 IP");
-
     const ip = discovery.ip;
     const cacheKey = `result_${ip}`;
     const cached = cacheGet(cacheKey);
-    if (cached) {
-        log(`使用缓存结果: ${ip}`);
-        render(ip, cached.data, cached.media);
-        return;
-    }
-
-    const [databaseData, mediaResults] = await Promise.all([
-        collectDatabases(ip, discovery),
-        mediaEnabled ? collectMedia() : Promise.resolve([]),
-    ]);
-    cacheSet(cacheKey, { data: databaseData, media: mediaResults });
-    render(ip, databaseData, mediaResults);
+    if (cached) { log(`使用缓存: ${ip}`); render(ip, cached); return; }
+    const data = await collectDatabases(ip, discovery);
+    cacheSet(cacheKey, data);
+    render(ip, data);
 }
 
-// 限制并发数的 Promise.all — 改用简单的批量分块方式
+// 分块批量并发
 async function limitedConcurrency(tasks, limit) {
     if (!tasks || tasks.length === 0) return [];
     const results = new Array(tasks.length);
@@ -101,8 +65,8 @@ async function limitedConcurrency(tasks, limit) {
             const idx = i;
             batch.push(
                 Promise.resolve(tasks[idx]()).then(
-                    (value) => { results[idx] = { ok: true, value }; },
-                    (error) => { results[idx] = { ok: false, error: errorMessage(error) }; }
+                    (v) => { results[idx] = { ok: true, value: v }; },
+                    (e) => { results[idx] = { ok: false, error: errorMessage(e) }; }
                 )
             );
         }
@@ -112,406 +76,151 @@ async function limitedConcurrency(tasks, limit) {
 }
 
 async function discoverIP() {
-    const definitions = [
+    const defs = [
         ["ipinfo.check.place", () => requestText(`${IPQUALITY_BACKEND}/cdn-cgi/trace`)],
-        ["myip.check.place", () => requestText("https://myip.check.place")],
-        ["ip-api", () => requestJson(`${IPAPI_COM_URL}?fields=status,message,query`)],
         ["ipify", () => requestJson(IPIFY_URL)],
+        ["ip-api", () => requestJson(`http://ip-api.com/json/?fields=status,message,query`)],
         ["ident.me", () => requestText("https://v4.ident.me/")],
         ["icanhazip", () => requestText("https://ipv4.icanhazip.com/")],
         ["IPPure", () => requestIppure()],
         ["ipapi", () => requestJson(IPAPI_URL)],
     ];
-    const settled = await limitedConcurrency(
-        definitions.map((d) => d[1]),
-        MAX_CONCURRENCY
-    );
-    const observations = [];
-    let ippure = null;
-    let ippureError = "";
-    let ipapi = null;
-
-    definitions.forEach((item, index) => {
-        const result = settled[index];
-        if (!result.ok) {
-            if (item[0] === "IPPure") ippureError = result.error;
-            warn(`出口探针 ${item[0]}: ${result.error}`);
-            return;
-        }
-        const value = result.value;
-        if (item[0] === "IPPure") ippure = value;
-        if (item[0] === "ipapi") ipapi = value;
-        const candidate = item[0] === "ipinfo.check.place"
-            ? cloudflareTraceIP(value)
-            : item[0] === "ip-api"
-                ? value && value.query
-                : item[0] === "ipify"
-                    ? value && value.ip
-                    : item[0] === "IPPure" || item[0] === "ipapi"
-                        ? value && value.ip
-                        : String(value || "").trim();
-        const normalizedCandidate = normalizeIPAddress(candidate);
-        if (normalizedCandidate) observations.push({
-            source: item[0],
-            ip: normalizedCandidate,
-        });
+    const settled = await limitedConcurrency(defs.map((d) => d[1]), MAX_CONCURRENCY);
+    let ippure = null, ippureError = "", ipapi = null;
+    const obs = [];
+    defs.forEach((item, i) => {
+        const r = settled[i];
+        if (!r.ok) { if (item[0] === "IPPure") ippureError = r.error; warn(`探针 ${item[0]}: ${r.error}`); return; }
+        const v = r.value;
+        if (item[0] === "IPPure") ippure = v;
+        if (item[0] === "ipapi") ipapi = v;
+        let c = "";
+        if (item[0] === "ipinfo.check.place") { const m = String(v || "").match(/(?:^|\n)ip=([^\r\n]+)/); c = m ? m[1].trim() : ""; }
+        else if (item[0] === "ip-api") c = v && v.query;
+        else if (item[0] === "ipify") c = v && v.ip;
+        else if (item[0] === "IPPure" || item[0] === "ipapi") c = v && v.ip;
+        else c = String(v || "").trim();
+        const nc = normalizeIPAddress(c);
+        if (nc) obs.push({ source: item[0], ip: nc });
     });
-
-    if (!observations.length) {
-        return { ip: "", ippure: null, ipapi: null, probe: { matched: 0, total: 0 } };
-    }
-
+    if (!obs.length) return { ip: "", ippure: null, ipapi: null, probe: { matched: 0, total: 0 } };
     const counts = {};
-    observations.forEach((item) => { counts[item.ip] = (counts[item.ip] || 0) + 1; });
-    const backendObservation = observations.find((item) => item.source === "ipinfo.check.place")
-        || observations.find((item) => item.source === "myip.check.place");
-    const ip = backendObservation ? backendObservation.ip : observations.map((item) => item.ip)
-        .sort((left, right) => {
-            const countDiff = counts[right] - counts[left];
-            if (countDiff) return countDiff;
-            const ipv4Diff = Number(isIPv4(right)) - Number(isIPv4(left));
-            if (ipv4Diff) return ipv4Diff;
-            return observations.findIndex((item) => item.ip === left)
-                - observations.findIndex((item) => item.ip === right);
-        })[0];
+    obs.forEach((o) => { counts[o.ip] = (counts[o.ip] || 0) + 1; });
+    const backend = obs.find((o) => o.source === "ipinfo.check.place") || obs[0];
+    const ip = backend.ip;
     const matchingIpapi = ipapi && normalizeIPAddress(ipapi.ip) === ip ? ipapi : null;
     const unique = Object.keys(counts);
-    if (unique.length > 1) {
-        warn(`出口探针不一致: ${observations.map((item) => `${item.source}=${item.ip}`).join(", ")}`);
-    }
-
-    return {
-        ip, ippure, ippureError,
-        ipapi: matchingIpapi,
-        probe: { matched: counts[ip], total: observations.length, unique: unique.length },
-    };
+    if (unique.length > 1) warn(`出口探针不一致: ${obs.map((o) => `${o.source}=${o.ip}`).join(", ")}`);
+    return { ip, ippure, ippureError, ipapi: matchingIpapi, probe: { matched: counts[ip], total: obs.length, unique: unique.length } };
 }
 
 async function collectDatabases(ip, discovery) {
     const pathIP = encodeURIComponent(ip);
     const tasks = [
         () => requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?lang=cn`),
-        () => discovery.ippure
-            ? Promise.resolve(discovery.ippure)
-            : Promise.reject(new Error(discovery.ippureError || "IPPure 请求失败")),
-        () => discovery.ipapi
-            ? Promise.resolve(discovery.ipapi)
-            : requestJson(`${IPAPI_URL}?q=${pathIP}`, { node: "DIRECT" }),
+        () => discovery.ippure ? Promise.resolve(discovery.ippure) : Promise.reject(new Error(discovery.ippureError || "IPPure 失败")),
+        () => discovery.ipapi ? Promise.resolve(discovery.ipapi) : requestJson(`${IPAPI_URL}?q=${pathIP}`, { node: "DIRECT" }),
         () => requestScamalytics(pathIP),
         () => requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?db=ip2location`),
         () => requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?db=ipqualityscore`),
         () => requestJson(`https://ipinfo.io/widget/demo/${pathIP}`, { node: "DIRECT" }),
     ];
-    const keys = [
-        "maxmind", "ippure", "ipapi",
-        "scamalytics", "ip2locationFull", "ipqs", "ipinfo",
-    ];
-    if (isIPv4(ip)) {
-        tasks.push(() => requestJson(
-            `${IPAPI_COM_URL}${pathIP}?fields=status,message,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,mobile,proxy,hosting,query`,
-            { node: "DIRECT" }
-        ));
-        keys.push("ipApiCom");
-    }
-
+    const keys = ["maxmind", "ippure", "ipapi", "scamalytics", "ip2locationFull", "ipqs", "ipinfo"];
     const settled = await limitedConcurrency(tasks, MAX_CONCURRENCY);
-    const data = {
-        _errors: {},
-        _warnings: {},
-        _probe: discovery.probe || { matched: 0, total: 0, unique: 0 },
-    };
-    keys.forEach((key, index) => {
-        const value = settled[index].ok ? settled[index].value : null;
-        const mismatch = value ? databaseIPMismatch(key, value, ip) : "";
-        if (key === "ippure" && value && !normalizeIPAddress(value.ip)) {
-            data[key] = null;
-            data._errors[key] = "IPPure 未返回可核验的出口 IP";
-            warn(`${key}: ${data._errors[key]}`);
-            return;
-        }
-        if (key === "ippure" && value && mismatch) {
-            data[key] = Object.assign({}, value, { _egressMismatch: true });
-            data._warnings[key] = mismatch;
-            warn(`${key}: ${mismatch}，保留为分流出口结果`);
-            return;
-        }
-        data[key] = mismatch ? null : value;
-        if (!settled[index].ok || mismatch) {
-            data._errors[key] = mismatch || settled[index].error;
-            warn(`${key}: ${data._errors[key]}`);
-        }
+    const data = { _errors: {}, _warnings: {}, _probe: discovery.probe || { matched: 0, total: 0, unique: 0 } };
+    keys.forEach((key, i) => {
+        const v = settled[i].ok ? settled[i].value : null;
+        if (key === "ippure" && v && !normalizeIPAddress(v.ip)) { data[key] = null; data._errors[key] = "IPPure IP 不符"; return; }
+        data[key] = v;
+        if (!settled[i].ok) data._errors[key] = settled[i].error;
     });
     return data;
 }
 
 async function requestBackendJson(url) {
-    let lastError = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-        try {
-            return await requestJson(url);
-        } catch (error) {
-            lastError = error;
-            if (!/HTTP 403\b/i.test(errorMessage(error)) || attempt >= 3) throw error;
-            warn(`聚合接口返回 403，第 ${attempt} 次重试`);
-        }
+    let lastErr = null;
+    for (let a = 1; a <= 2; a++) {
+        try { return await requestJson(url); }
+        catch (e) { lastErr = e; if (!/HTTP 403/i.test(errorMessage(e)) || a >= 2) throw e; warn(`聚合接口 403 重试 ${a}`); }
     }
-    throw lastError || new Error("聚合接口请求失败");
+    throw lastErr || new Error("聚合接口失败");
 }
 
 async function requestIppure() {
-    let lastError = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (let a = 1; a <= 2; a++) {
         try {
-            const value = await requestJson(IPPURE_URL, { headers: {}, timeout: 6000 });
-            if (!normalizeIPAddress(value && value.ip)) throw new Error("未返回可核验的出口 IP");
-            const fraudScore = numberOrNull(value.fraudScore);
-            if (fraudScore === null || fraudScore < 0 || fraudScore > 100) throw new Error("风险评分无效");
-            return value;
-        } catch (error) {
-            lastError = error;
-            if (attempt < 3) warn(`IPPure 第 ${attempt} 次请求失败: ${errorMessage(error)}`);
-        }
+            const v = await requestJson(IPPURE_URL, { headers: {}, timeout: 6000 });
+            if (!normalizeIPAddress(v && v.ip)) throw new Error("IP 无效");
+            if (numberOrNull(v.fraudScore) === null || v.fraudScore < 0 || v.fraudScore > 100) throw new Error("评分无效");
+            return v;
+        } catch (e) { if (a < 2) warn(`IPPure 重试 ${a}: ${errorMessage(e)}`); else throw e; }
     }
-    throw lastError || new Error("IPPure 请求失败");
 }
 
 async function requestScamalytics(pathIP) {
     try {
-        const backend = await requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?db=scamalytics`);
-        if (numberOrNull(valueAt(backend, "scamalytics.scamalytics_score")) === null) {
-            throw new Error("聚合接口未返回评分");
-        }
-        return backend;
-    } catch (backendError) {
-        warn(`Scamalytics 聚合接口失败: ${errorMessage(backendError)}`);
-        const html = await requestText(`https://scamalytics.com/ip/${pathIP}`, {
-            headers: browserHeaders(),
-        });
-        const parsed = parseScamalyticsHtml(html, decodeURIComponent(pathIP));
-        if (!parsed) throw new Error("Scamalytics 官网页面解析失败");
-        return parsed;
+        const b = await requestBackendJson(`${IPQUALITY_BACKEND}/${pathIP}?db=scamalytics`);
+        if (numberOrNull(valueAt(b, "scamalytics.scamalytics_score")) === null) throw new Error("无评分");
+        return b;
+    } catch (e) {
+        warn(`Scamalytics 聚合失败: ${errorMessage(e)}`);
+        try {
+            const html = await requestText(`https://scamalytics.com/ip/${pathIP}`, { headers: browserHeaders() });
+            const p = parseScamalyticsHtml(html, decodeURIComponent(pathIP));
+            if (!p) throw new Error("官网解析失败");
+            return p;
+        } catch (e2) { throw e2; }
     }
 }
 
-async function requestIpregistry(pathIP) {
-    let key = "sb69ksjcajfs4c";
-    try {
-        const homepage = await requestText("https://ipregistry.co", { node: "DIRECT" });
-        const match = String(homepage).match(/apiKey=["']([a-zA-Z0-9]+)["']/i);
-        if (match) key = match[1];
-    } catch (error) {
-        warn(`ipregistry 首页密钥获取失败: ${errorMessage(error)}`);
-    }
-    return requestJson(`https://api.ipregistry.co/${pathIP}?hostname=true&key=${key}`, {
-        node: "DIRECT",
-        headers: {
-            Accept: "application/json",
-            Origin: "https://ipregistry.co",
-            Referer: "https://ipregistry.co/",
-            "User-Agent": USER_AGENT,
-        },
-    });
-}
+// ============== 渲染（去重汇总版） ==============
 
-function databaseIPMismatch(key, value, expectedIP) {
-    const paths = {
-        maxmind: ["IP", "ip"], ippure: ["ip"],
-        ipapi: ["ip"], ipinfo: ["data.ip"],
-        scamalytics: ["ip"],
-        ip2locationFull: ["ip"], ipqs: ["ip"],
-    };
-    const candidates = paths[key] || [];
-    let reported = "";
-    if (key === "proxycheck") {
-        reported = Object.keys(value || {}).find((name) => isIPAddress(name)) || "";
-    }
-    for (let i = 0; i < candidates.length; i += 1) {
-        const candidate = cleanValue(valueAt(value, candidates[i]));
-        if (candidate) { reported = candidate; break; }
-    }
-    if (!reported) return "";
-    const normalizedReported = normalizeIPAddress(reported);
-    const normalizedExpected = normalizeIPAddress(expectedIP);
-    return normalizedReported && normalizedExpected && normalizedReported === normalizedExpected
-        ? "" : `响应 IP ${reported} 与检测 IP ${expectedIP} 不一致`;
-}
+function render(ip, data) {
+    // 1. 汇总基础信息（多源合并去重）
+    const basic = buildBasicSummary(ip, data);
+    // 2. 汇总 IP 类型（多源合并）
+    const ipType = buildTypeSummary(data);
+    // 3. 汇总风险评分
+    const risks = buildRiskSummary(data);
+    // 4. 汇总风险标记（多源合并去重）
+    const flags = buildFlagSummary(data);
+    // 5. 流媒体
+    const media = mediaEnabled ? [] : null;
+    // 6. 审计
+    const audit = buildAuditSummary(data);
 
-async function collectMedia() {
-    const tests = [
-        () => testTikTok(),
-        () => testDisneyPlus(),
-        () => testNetflix(),
-        () => testYouTube(),
-        () => testPrimeVideo(),
-        () => testReddit(),
-        () => testChatGPT(),
-    ];
-    const settled = await limitedConcurrency(tests, MAX_CONCURRENCY);
-    const names = ["TikTok", "Disney+", "Netflix", "YouTube", "Prime Video", "Reddit", "ChatGPT"];
-    return names.map((name, index) => {
-        if (settled[index].ok) return settled[index].value;
-        warn(`${name}: ${settled[index].error}`);
-        return mediaResult(name, "unknown", "", "请求失败");
-    });
-}
-
-async function testTikTok() {
-    const response = await request("GET", "https://www.tiktok.com/", {
-        allowHttpErrors: true, headers: browserHeaders(),
-    });
-    const region = firstMatch(response.body, [
-        /"region"\s*:\s*"([A-Z]{2})"/i,
-        /"storeCountry"\s*:\s*"([A-Z]{2})"/i,
-    ]);
-    if (region) return mediaResult("TikTok", "yes", region, "页面地区字段");
-    if (response.status === 403 || /not available|access denied/i.test(response.body)) {
-        return mediaResult("TikTok", "no", "", `HTTP ${response.status || "?"}`);
-    }
-    return mediaResult("TikTok", "unknown", "", "地区未识别");
-}
-
-async function testDisneyPlus() {
-    const device = await requestJson("https://disney.api.edge.bamgrid.com/devices", {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${DISNEY_CLIENT_TOKEN}`,
-            "Content-Type": "application/json; charset=UTF-8",
-            "User-Agent": USER_AGENT,
-        },
-        body: JSON.stringify({
-            deviceFamily: "browser", applicationRuntime: "chrome",
-            deviceProfile: "windows", attributes: {},
-        }),
-    });
-    if (!device.assertion) return mediaResult("Disney+", "unknown", "", "设备注册失败");
-    const form = [
-        "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange",
-        "latitude=0", "longitude=0", "platform=browser",
-        `subject_token=${encodeURIComponent(device.assertion)}`,
-        "subject_token_type=urn%3Abamtech%3Aparams%3Aoauth%3Atoken-type%3Adevice",
-    ].join("&");
-    const token = await requestJson("https://disney.api.edge.bamgrid.com/token", {
-        method: "POST", allowHttpErrors: true,
-        headers: {
-            Authorization: `Bearer ${DISNEY_CLIENT_TOKEN}`,
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": USER_AGENT,
-        },
-        body: form,
-    });
-    if (token.error_description === "forbidden-location") {
-        return mediaResult("Disney+", "no", "", "地理位置受限");
-    }
-    const region = token.region || token.location || "";
-    if (region) return mediaResult("Disney+", "yes", region.toUpperCase(), "令牌地区");
-    return mediaResult("Disney+", "unknown", "", "地区未识别");
-}
-
-async function testNetflix() {
-    const responses = await Promise.all([
-        request("GET", "https://www.netflix.com/title/70143836", { allowHttpErrors: true }),
-        request("GET", "https://www.netflix.com/title/80018499", { allowHttpErrors: true }),
-        request("GET", "https://www.netflix.com/title/70143860", { allowHttpErrors: true }),
-        request("GET", "https://www.netflix.com/title/70202589", { allowHttpErrors: true }),
-    ]);
-    const pages = responses.map((r) => r.body);
-    const unavailable = pages.map((body) => /Oh no!|NSEZ-404/i.test(body));
-    const available = unavailable.filter((v) => !v).length;
-    if (available >= 2) {
-        const region = firstMatch(pages[0], [
-            /"countryOfManufacture"\s*:\s*"([A-Z]{2})"/i,
-            /"locale"\s*:\s*"([a-z]{2})-?/i,
-        ]);
-        return mediaResult("Netflix", "yes", region || "", `可看 ${available}/4 部`);
-    }
-    if (available > 0) return mediaResult("Netflix", "partial", "", `可看 ${available}/4 部`);
-    return mediaResult("Netflix", "no", "", "全部不可用");
-}
-
-async function testYouTube() {
-    const response = await request("GET", "https://www.youtube.com/premium", {
-        allowHttpErrors: true, headers: browserHeaders(),
-    });
-    if (/www\.google\.cn/i.test(response.body)) {
-        return mediaResult("YouTube", "no", "CN", "跳转至 google.cn");
-    }
-    const region = firstMatch(response.body, [/"contentRegion"\s*:\s*"([A-Z]{2})"/i]);
-    if (/Premium is not available in your country/i.test(response.body)) {
-        return mediaResult("YouTube", "no", region || "", "不支援 Premium");
-    }
-    if (region && /YouTube Premium/i.test(response.body)) {
-        return mediaResult("YouTube", "yes", region, "页面地区");
-    }
-    return mediaResult("YouTube", "unknown", region || "", "地区未识别");
-}
-
-async function testPrimeVideo() {
-    const response = await request("GET", "https://www.primevideo.com/", {
-        allowHttpErrors: true, headers: browserHeaders(),
-    });
-    const region = firstMatch(response.body, [
-        /"currentTerritory"\s*:\s*"([A-Z]{2})"/i,
-        /"defaultTerritory"\s*:\s*"([A-Z]{2})"/i,
-    ]);
-    if (region && !/not available in your location/i.test(response.body)) {
-        return mediaResult("Prime Video", "yes", region, "页面地区");
-    }
-    if (response.status === 403 || /not available in your location/i.test(response.body)) {
-        return mediaResult("Prime Video", "no", "", "地区不可用");
-    }
-    return mediaResult("Prime Video", "unknown", "", "地区未识别");
-}
-
-async function testReddit() {
-    const response = await request("GET", "https://www.reddit.com/", {
-        allowHttpErrors: true, headers: browserHeaders(),
-    });
-    const region = firstMatch(response.body, [
-        /"countryCode"\s*:\s*"([A-Z]{2})"/i,
-        /"geo"\s*:\s*"([A-Z]{2})"/i,
-    ]);
-    if (region) return mediaResult("Reddit", "yes", region, "页面地区");
-    return mediaResult("Reddit", "unknown", "", "地区未识别");
-}
-
-async function testChatGPT() {
-    const trace = await request("GET", "https://chatgpt.com/cdn-cgi/trace", {
-        allowHttpErrors: true,
-    }).catch(() => null);
-    const region = trace ? firstMatch(trace.body, [/^loc=([A-Z]{2})$/im]) : "";
-    if (region) return mediaResult("ChatGPT", "yes", region, "CDN 地区");
-    return mediaResult("ChatGPT", "unknown", "", "CDN 地区未识别");
-}
-
-// ============== 渲染部分（精简版） ==============
-
-function render(ip, data, media) {
-    const basic = buildBasic(ip, data);
-    const types = buildTypes(data);
-    const risks = buildRisks(data);
-    const factors = buildFactors(data);
-    const audit = buildAudit(data);
-    const titleColor = reportColor(risks);
+    const titleColor = risks.highest >= 3 ? "#ff453a" : risks.highest >= 2 ? "#ff9f0a" : "#30d158";
     const displayNodeName = truncateText(nodeName, 30);
 
-    // 使用折叠方案：风险因素默认折叠，点击展开
+    // 异步跑流媒体
+    if (mediaEnabled) {
+        collectMedia().then((m) => {
+            data._media = m;
+            // 重新渲染带流媒体
+            renderFull(ip, basic, ipType, risks, flags, m, audit, titleColor, displayNodeName);
+        }).catch(() => {});
+    }
+
+    renderFull(ip, basic, ipType, risks, flags, media, audit, titleColor, displayNodeName);
+}
+
+function renderFull(ip, basic, ipType, risks, flags, media, audit, titleColor, displayNodeName) {
     const html = [
         '<div style="font-family:-apple-system,BlinkMacSystemFont;font-size:14px;line-height:1.5;text-align:left;overflow-wrap:anywhere">',
         '<div style="height:18px"></div>',
         '<div style="font-size:20px;font-weight:700;margin-bottom:16px">节点 IP 质量检测</div>',
         `<div style="color:#8e8e93;font-size:11px;margin-bottom:10px">节点 · ${esc(displayNodeName)}</div>`,
         summaryCard(basic),
-        section("基础信息", renderBasic(basic)),
-        section("IP 类型属性", renderTypeList(types)),
-        section("风险评分", renderRiskList(risks)),
-        // 风险因素使用折叠
-        collapsibleSection("风险因素", renderFactorCards(factors)),
-        section("流媒体与 AI", mediaEnabled ? renderMediaList(media) : mutedLine("流媒体检测已关闭")),
-        section("数据状态", renderAudit(audit, data._probe)),
+        section("基础信息", renderBasicSummary(basic)),
+        section("IP 类型", renderTypeSummary(ipType)),
+        section("风险评分", renderRiskSummary(risks)),
+        collapsibleSection("风险标记", renderFlagSummary(flags)),
+        media ? section("流媒体与 AI", renderMediaSummary(media)) : "",
+        section("数据状态", renderAuditSummary(audit)),
         '<div style="height:9px"></div>',
-        `<div style="color:#8e8e93;font-size:10px;line-height:1.45">类型名称、评分分档与风险字段遵循 xykt/IPQuality 的展示口径；各库结果独立展示，不生成综合结论。聚合来源不可用时保留直连结果。Loon 不提供节点 TCP/DNS API，25 端口与 DNSBL 未检测。</div>`,
+        `<div style="color:#8e8e93;font-size:10px;line-height:1.45">多源汇总展示，去重合并。各库结果独立，不生成综合结论。</div>`,
         '<div style="height:56px"></div><div style="height:56px"></div></div>',
-    ].join("");
+    ].filter(Boolean).join("");
 
     postMapNotification(basic, displayNodeName);
     $done({
@@ -522,98 +231,180 @@ function render(ip, data, media) {
     });
 }
 
-// 折叠区块：默认折叠，点击展开
-function collapsibleSection(title, content) {
-    const id = "sec_" + title.replace(/\s+/g, "_");
-    return `<div style="font-size:8px;line-height:8px">&nbsp;</div>`
-        + `<div><div style="color:#0A84FF;font-weight:700;font-size:15px;margin-bottom:9px">▌${esc(title)}</div>`
-        + `<div id="${id}">${content}</div>`
-        + `<div style="font-size:11px;color:#8e8e93;text-align:center;margin:4px 0" onclick="var el=document.getElementById('${id}');var btn=this;if(el.style.display==='none'){el.style.display='';btn.innerText='▲ 收起'}else{el.style.display='none';btn.innerText='▼ 展开'}" id="${id}_btn">▼ 展开</div>`
-        + `<script>document.getElementById('${id}').style.display='none';document.getElementById('${id}_btn').innerText='▼ 展开'</script></div>`;
-}
+// ============== 汇总函数 ==============
 
-function buildBasic(ip, data) {
+function buildBasicSummary(ip, data) {
+    const maxmind = data.maxmind || {};
     const ipapi = data.ipapi || {};
+    const ipinfo = data.ipinfo && data.ipinfo.data ? data.ipinfo.data : {};
     const ippure = data.ippure && !data.ippure._egressMismatch ? data.ippure : {};
     const ip2 = getIp2location(data) || {};
-    const ipinfo = data.ipinfo && data.ipinfo.data ? data.ipinfo.data : {};
-    const maxmind = data.maxmind || {};
-    const maxmindASN = maxmind.ASN || {};
-    const maxmindCity = maxmind.City || {};
-    const maxmindCountry = maxmind.Country || {};
-    const maxmindRegistered = maxmindCountry.RegisteredCountry || {};
-    const location = ipapi.location || {};
+    const loc = ipapi.location || {};
     const asn = ipapi.asn || {};
-    const maxmindRegion = cleanValue(maxmindCountry.IsoCode) || cleanValue(maxmindCountry.Name)
-        ? maxmindCountry : valueAt(maxmindCity, "Country") || {};
-    const maxmindCityParts = [];
-    if (Array.isArray(maxmindCity.Subdivisions)) {
-        maxmindCity.Subdivisions.forEach((item) => {
-            const name = cleanValue(item && item.Name);
-            if (name && maxmindCityParts.indexOf(name) === -1) maxmindCityParts.push(name);
-        });
+
+    // 国家：优先取一致的
+    const countryCode = cleanValue(ipapi.country_code || valueAt(ipapi, "location.country_code") || maxmind.Country?.IsoCode || ipinfo.country || ip2.country_code || "");
+    const countryName = cleanValue(loc.country || maxmind.Country?.Name || ipinfo.country_name || ip2.country_name || "");
+    const city = cleanValue(loc.city || ipinfo.city || ip2.city_name || maxmind.City?.Name || ippure.city || "");
+    const region = cleanValue(ipinfo.region || loc.state || "");
+
+    // ASN：多源合并
+    const asnNumber = cleanASN(asn.asn || valueAt(ipinfo, "asn.asn") || ip2.asn || maxmind.ASN?.AutonomousSystemNumber || ippure.asn || "");
+    const org = cleanValue(asn.org || valueAt(ipinfo, "asn.name") || ip2.as || maxmind.ASN?.AutonomousSystemOrganization || ippure.asOrganization || "");
+
+    // 坐标：多源合并
+    const lat = numberOrNull(loc.latitude || ip2.latitude || splitCoordinate(ipinfo.loc, 0) || maxmind.City?.Latitude || ippure.latitude);
+    const lon = numberOrNull(loc.longitude || ip2.longitude || splitCoordinate(ipinfo.loc, 1) || maxmind.City?.Longitude || ippure.longitude);
+
+    // 时区
+    const tz = cleanValue(loc.timezone || ipinfo.timezone || ippure.timezone || "");
+
+    // 路由
+    const route = cleanValue(asn.route || valueAt(ipinfo, "asn.route") || maxmind.ASN?.Network || "");
+
+    return { ip: maskIPAddress(ip), countryCode, countryName, city, region, asn: asnNumber, org, lat, lon, tz, route };
+}
+
+function buildTypeSummary(data) {
+    const ip2 = getIp2location(data);
+    const ipapi = data.ipapi;
+    const ipqs = data.ipqs && data.ipqs.success !== false ? data.ipqs : null;
+    const ippure = data.ippure && !data.ippure._egressMismatch ? data.ippure : {};
+    const results = [];
+
+    // 多源汇总 IP 类型
+    const types = [];
+    if (ip2 && ip2.usage_type) types.push({ source: "IP2Location", type: formatType(ip2.usage_type), raw: ip2.usage_type });
+    if (ipapi) {
+        const t = valueAt(ipapi, "asn.type");
+        if (t) types.push({ source: "ipapi", type: formatType(t), raw: t });
     }
-    const preferredCity = cleanValue(maxmindCity.Name);
-    if (preferredCity && maxmindCityParts.indexOf(preferredCity) === -1) maxmindCityParts.push(preferredCity);
+    if (ipqs && ipqs.connection_type) types.push({ source: "IPQS", type: formatType(ipqs.connection_type), raw: ipqs.connection_type });
+    if (ippure && ippure.usageType) types.push({ source: "IPPure", type: formatType(ippure.usageType), raw: ippure.usageType });
 
-    const profiles = [
-        { source: "MaxMind", countryCode: cleanValue(maxmindRegion.IsoCode), countryName: cleanValue(maxmindRegion.Name), registeredCode: cleanValue(maxmindRegistered.IsoCode), registeredName: cleanValue(maxmindRegistered.Name), cityParts: maxmindCityParts, asn: cleanASN(maxmindASN.AutonomousSystemNumber), organization: cleanValue(maxmindASN.AutonomousSystemOrganization), latitude: numberOrNull(maxmindCity.Latitude), longitude: numberOrNull(maxmindCity.Longitude), timezone: cleanValue(valueAt(maxmindCity, "Location.TimeZone")), route: cleanValue(maxmindASN.Network) || cleanValue(maxmind.Network) },
-        { source: "IPinfo", countryCode: cleanValue(ipinfo.country), countryName: cleanValue(ipinfo.country_name), registeredCode: cleanValue(valueAt(ipinfo, "abuse.country")), registeredName: "", cityParts: uniqueValues([ipinfo.region, ipinfo.city]), asn: cleanASN(valueAt(ipinfo, "asn.asn")), organization: cleanValue(valueAt(ipinfo, "asn.name")), latitude: numberOrNull(splitCoordinate(ipinfo.loc, 0)), longitude: numberOrNull(splitCoordinate(ipinfo.loc, 1)), timezone: cleanValue(ipinfo.timezone), route: cleanValue(valueAt(ipinfo, "asn.route")) },
-        { source: "ipapi", countryCode: cleanValue(location.country_code), countryName: cleanValue(location.country), registeredCode: "", registeredName: "", cityParts: uniqueValues([location.state, location.city]), asn: cleanASN(asn.asn), organization: cleanValue(asn.org), latitude: numberOrNull(location.latitude), longitude: numberOrNull(location.longitude), timezone: cleanValue(location.timezone), route: cleanValue(asn.route) },
-        { source: "IPPure", countryCode: cleanValue(ippure.countryCode), countryName: cleanValue(ippure.country), registeredCode: "", registeredName: "", cityParts: uniqueValues([ippure.city]), asn: cleanASN(ippure.asn), organization: cleanValue(ippure.asOrganization), latitude: numberOrNull(ippure.latitude), longitude: numberOrNull(ippure.longitude), timezone: cleanValue(ippure.timezone), route: "" },
-        { source: "IP2Location", countryCode: cleanValue(ip2.country_code), countryName: cleanValue(ip2.country_name), registeredCode: "", registeredName: "", cityParts: uniqueValues([ip2.city_name]), asn: cleanASN(ip2.asn), organization: cleanValue(ip2.as), latitude: numberOrNull(ip2.latitude), longitude: numberOrNull(ip2.longitude), timezone: cleanValue(ip2.time_zone), route: "" },
+    // 去重：相同 type 只保留一个，标注来源
+    const seen = {};
+    types.forEach((t) => {
+        if (!seen[t.type]) seen[t.type] = [];
+        seen[t.type].push(t.source);
+    });
+
+    return Object.keys(seen).map((type) => ({
+        type,
+        sources: seen[type].join("/"),
+    }));
+}
+
+function buildRiskSummary(data) {
+    const ipqs = data.ipqs && data.ipqs.success !== false ? data.ipqs : null;
+    const scam = data.scamalytics?.scamalytics;
+    const ip2 = getIp2location(data);
+    const ipapi = data.ipapi;
+    const scores = [];
+    if (ipqs && numberOrNull(ipqs.fraud_score) !== null) scores.push({ name: "IPQS", score: ipqs.fraud_score, source: "IPQS" });
+    if (scam && numberOrNull(scam.scamalytics_score) !== null) scores.push({ name: "Scamalytics", score: scam.scamalytics_score, source: "Scamalytics" });
+    if (ip2 && numberOrNull(ip2.fraud_score) !== null) scores.push({ name: "IP2Location", score: ip2.fraud_score, source: "IP2Location" });
+    if (ipapi && numberOrNull(ipapi.risk_score) !== null) scores.push({ name: "ipapi", score: ipapi.risk_score, source: "ipapi" });
+    else if (ipapi && ipapi.risk_level) scores.push({ name: "ipapi", score: null, level: ipapi.risk_level, source: "ipapi" });
+
+    const highest = scores.reduce((max, s) => Math.max(max, s.score !== null ? s.score : 0), 0);
+    return { scores, highest };
+}
+
+function buildFlagSummary(data) {
+    const ipinfo = data.ipinfo && data.ipinfo.data ? data.ipinfo.data : null;
+    const ipapi = data.ipapi;
+    const ip2 = getIp2location(data);
+    const ip2Proxy = ip2?.proxy || {};
+    const ipqs = data.ipqs && data.ipqs.success !== false ? data.ipqs : null;
+    const scam = data.scamalytics?.scamalytics;
+    const scamRoot = data.scamalytics;
+
+    // 收集所有标记，按类别合并
+    const flagMap = {};
+
+    function addFlag(category, value, source) {
+        if (value === true || value === "true" || value === 1 || value === "1") {
+            if (!flagMap[category]) flagMap[category] = { hit: true, sources: [] };
+            flagMap[category].sources.push(source);
+        } else if (value === false || value === "false" || value === 0 || value === "0") {
+            if (!flagMap[category]) flagMap[category] = { hit: false, sources: [] };
+            flagMap[category].sources.push(source);
+        }
+    }
+
+    // IP2Location
+    addFlag("代理", anyTrue([ip2?.is_proxy, ip2Proxy.is_public_proxy, ip2Proxy.is_web_proxy]), "IP2L");
+    addFlag("Tor", ip2Proxy.is_tor, "IP2L");
+    addFlag("VPN", ip2Proxy.is_vpn, "IP2L");
+    addFlag("机房", ip2Proxy.is_data_center, "IP2L");
+    addFlag("滥用", ip2Proxy.is_spammer, "IP2L");
+    addFlag("机器人", anyTrue([ip2Proxy.is_web_crawler, ip2Proxy.is_scanner, ip2Proxy.is_botnet]), "IP2L");
+
+    // ipapi
+    addFlag("VPN", ipapi?.is_vpn, "ipapi");
+    addFlag("代理", ipapi?.is_proxy, "ipapi");
+    addFlag("Tor", ipapi?.is_tor, "ipapi");
+    addFlag("机房", ipapi?.is_datacenter, "ipapi");
+    addFlag("滥用", ipapi?.is_abuser, "ipapi");
+    addFlag("爬虫", ipapi?.is_crawler, "ipapi");
+
+    // IPQS
+    addFlag("代理", ipqs?.proxy, "IPQS");
+    addFlag("Tor", ipqs?.tor, "IPQS");
+    addFlag("VPN", ipqs?.vpn, "IPQS");
+    addFlag("滥用", ipqs?.recent_abuse, "IPQS");
+    addFlag("机器人", ipqs?.bot_status, "IPQS");
+
+    // Scamalytics
+    addFlag("代理", valueAt(scamRoot, "external_datasources.firehol.is_proxy"), "Scam");
+    addFlag("Tor", valueAt(scamRoot, "external_datasources.x4bnet.is_tor"), "Scam");
+    addFlag("VPN", scam?.scamalytics_proxy?.is_vpn, "Scam");
+    addFlag("机房", scam?.scamalytics_proxy?.is_datacenter, "Scam");
+    addFlag("滥用", scam?.is_blacklisted_external, "Scam");
+
+    // IPinfo
+    addFlag("VPN", valueAt(ipinfo, "privacy.vpn"), "IPinfo");
+    addFlag("代理", valueAt(ipinfo, "privacy.proxy"), "IPinfo");
+    addFlag("Tor", valueAt(ipinfo, "privacy.tor"), "IPinfo");
+    addFlag("中继", valueAt(ipinfo, "privacy.relay"), "IPinfo");
+    addFlag("机房", valueAt(ipinfo, "privacy.hosting"), "IPinfo");
+
+    return flagMap;
+}
+
+function buildAuditSummary(data) {
+    const checks = [
+        ["MaxMind", !!(data.maxmind && (data.maxmind.Country || data.maxmind.ASN))],
+        ["IPPure", !!(data.ippure && data.ippure.ip)],
+        ["ipapi", !!(data.ipapi && data.ipapi.ip)],
+        ["IPinfo", !!(data.ipinfo && data.ipinfo.data)],
+        ["IP2Location", !!getIp2location(data)],
+        ["Scamalytics", !!(data.scamalytics && numberOrNull(valueAt(data.scamalytics, "scamalytics.scamalytics_score")) !== null)],
+        ["IPQS", !!(data.ipqs && data.ipqs.success !== false && numberOrNull(data.ipqs.fraud_score) !== null)],
     ];
-    const profile = profiles.find((item) => item.countryCode || item.countryName)
-        || profiles.find((item) => item.asn || item.organization || item.cityParts.length)
-        || { source: "", cityParts: [] };
-    const loonNetwork = loonNetworkProfile(ip);
-    const networkProfile = profiles.find((item) => item.asn)
-        || (loonNetwork.asn ? loonNetwork : null)
-        || profiles.find((item) => item.organization)
-        || (loonNetwork.organization ? loonNetwork : null)
-        || profile;
-    const networkOrganization = cleanValue(networkProfile.organization)
-        || (networkProfile.asn && networkProfile.asn === loonNetwork.asn ? cleanValue(loonNetwork.organization) : "");
-    const sourceParts = [cleanValue(profile.source)];
-    const countryParts = [profile.countryCode, profile.countryName].filter(Boolean);
-    const registeredParts = [profile.registeredCode, profile.registeredName].filter(Boolean);
-    const cityText = profile.cityParts.length ? profile.cityParts.join(" · ") : "";
-    const networkParts = [cleanValue(networkProfile.asn), networkOrganization].filter(Boolean);
-    const route = cleanValue(networkProfile.route);
-    const latitude = networkProfile.latitude;
-    const longitude = networkProfile.longitude;
-    const timezone = networkProfile.timezone;
-
     return {
-        ip: maskIPAddress(ip),
-        source: sourceParts.join(" "),
-        country: countryParts.join(" "),
-        registered: registeredParts.join(" "),
-        city: cityText,
-        network: networkParts.join(" "),
-        route,
-        latitude, longitude, timezone,
-        networkSource: cleanValue(networkProfile.source),
+        total: checks.length,
+        success: checks.filter((c) => c[1]).map((c) => c[0]),
+        failed: checks.filter((c) => !c[1]).map((c) => c[0]),
     };
 }
 
-// 以下函数保持原有逻辑，仅精简 HTML 输出
+// ============== 渲染子函数（精简版） ==============
 
 function summaryCard(basic) {
-    const loc = basic.latitude && basic.longitude
-        ? `<span style="color:#8e8e93">${basic.city ? esc(basic.city) + ' · ' : ''}${toDMS(basic.latitude, true)} ${toDMS(basic.longitude, false)}</span>`
+    const loc = basic.lat && basic.lon
+        ? `<span style="color:#8e8e93">${basic.city ? esc(basic.city) + ' · ' : ''}${toDMS(basic.lat, true)} ${toDMS(basic.lon, false)}</span>`
         : (basic.city ? `<span style="color:#8e8e93">${esc(basic.city)}</span>` : "");
-    const timezone = basic.timezone ? `<span style="color:#8e8e93;font-size:11px">${esc(basic.timezone)}</span>` : "";
-    const mapLink = basic.latitude && basic.longitude
-        ? ` · <a href="${buildMapURL(basic.latitude, basic.longitude, 0)}" style="color:#0A84FF;text-decoration:none">地图</a>`
-        : "";
+    const mapLink = basic.lat && basic.lon
+        ? ` · <a href="${buildMapURL(basic.lat, basic.lon, 0)}" style="color:#0A84FF;text-decoration:none">地图</a>` : "";
+    const countryDisplay = basic.countryCode ? `${basic.countryName} [${basic.countryCode}]` : basic.countryName || basic.countryCode || "";
     return `<div style="background:#1c1c1e;border-radius:12px;padding:14px;margin-bottom:12px">`
         + `<div style="font-size:13px;font-weight:600">${esc(basic.ip)}</div>`
-        + `<div style="margin-top:4px;font-size:12px;color:#8e8e93">${esc(basic.country)}${basic.registered ? ' · 注册 ' + esc(basic.registered) : ''}</div>`
-        + `<div style="margin-top:2px;font-size:12px;color:#8e8e93">${esc(basic.network)}</div>`
+        + `<div style="margin-top:4px;font-size:12px;color:#8e8e93">${esc(countryDisplay)}</div>`
+        + (basic.org ? `<div style="margin-top:2px;font-size:12px;color:#8e8e93">${basic.asn ? 'AS' + basic.asn + ' ' : ''}${esc(basic.org)}</div>` : "")
         + (basic.route ? `<div style="margin-top:2px;font-size:11px;color:#555">${esc(basic.route)}</div>` : "")
-        + (loc || timezone ? `<div style="margin-top:4px;font-size:12px">${loc}${timezone ? ' ' + timezone : ''}${mapLink}</div>` : "")
-        + `<div style="margin-top:4px;font-size:10px;color:#555">来源: ${esc(basic.source)}${basic.networkSource && basic.networkSource !== basic.source ? ' / ' + esc(basic.networkSource) : ''}</div>`
+        + (loc || basic.tz ? `<div style="margin-top:4px;font-size:12px">${loc}${basic.tz ? ' ' + esc(basic.tz) : ''}${mapLink}</div>` : "")
         + `</div>`;
 }
 
@@ -621,83 +412,79 @@ function section(title, content) {
     return `<div style="height:8px"></div><div><div style="color:#0A84FF;font-weight:700;font-size:15px;margin-bottom:9px">▌${esc(title)}</div>${content}</div>`;
 }
 
-function renderBasic(basic) {
+function collapsibleSection(title, content) {
+    const id = "sec_" + title.replace(/\s+/g, "_");
+    return `<div style="height:8px"></div><div><div style="color:#0A84FF;font-weight:700;font-size:15px;margin-bottom:9px">▌${esc(title)}</div>`
+        + `<div id="${id}">${content}</div>`
+        + `<div style="font-size:11px;color:#8e8e93;text-align:center;margin:4px 0" onclick="var e=document.getElementById('${id}');var b=this;if(e.style.display==='none'){e.style.display='';b.innerText='▲ 收起'}else{e.style.display='none';b.innerText='▼ 展开'}" id="${id}_btn">▼ 展开</div>`
+        + `<script>document.getElementById('${id}').style.display='none';document.getElementById('${id}_btn').innerText='▼ 展开'</script></div>`;
+}
+
+function renderBasicSummary(basic) {
+    const country = basic.countryCode ? `${basic.countryName} [${basic.countryCode}]` : basic.countryName || basic.countryCode || "—";
+    const network = basic.asn ? `AS${basic.asn} ${basic.org}` : (basic.org || "—");
     const rows = [
         ["IP 地址", basic.ip],
-        ["国家", basic.country],
-        basic.registered ? ["注册地", basic.registered] : null,
+        ["国家", country],
         ["城市", basic.city || "—"],
-        ["网络", basic.network || "—"],
+        ["网络", network],
         basic.route ? ["路由", basic.route] : null,
-        basic.timezone ? ["时区", basic.timezone] : null,
+        basic.tz ? ["时区", basic.tz] : null,
     ].filter(Boolean);
     return rows.map((r) => infoLine(r[0], r[1])).join("");
 }
 
-function renderTypeList(types) {
-    return types.map((t) => typeRow(t.name, t.usage, t.company)).map((r) => {
-        return `<div style="margin-bottom:8px;line-height:1.4"><span style="font-weight:600">${esc(r.name)}</span>`
-            + `<div style="margin-top:1px;font-size:12px;color:#8e8e93">${esc(r.usage)}${r.company ? ' · ' + esc(r.company) : ''}</div></div>`;
+function renderTypeSummary(types) {
+    if (!types.length) return mutedLine("未获取到类型信息");
+    return types.map((t) => {
+        return `<div style="margin-bottom:6px;line-height:1.4"><span style="font-weight:600">${esc(t.type)}</span><span style="font-size:11px;color:#8e8e93;margin-left:6px">(${esc(t.sources)})</span></div>`;
     }).join("");
 }
 
-function renderRiskList(rows) {
-    return rows.map((r) => {
-        if (!r.available) return `<div style="color:#8e8e93;font-size:12px;margin-bottom:6px">${esc(r.name)}: 不可用</div>`;
-        const color = riskColor(r.severity);
-        return `<div style="margin-bottom:8px;line-height:1.4"><span style="font-weight:600">${esc(r.name)}</span>`
-            + `<span style="float:right;color:${color};font-weight:700">${esc(r.label)}</span>`
-            + (r.detail ? `<div style="font-size:11px;color:#8e8e93;margin-top:1px">${esc(r.detail)}</div>` : "")
-            + `</div>`;
+function renderRiskSummary(risks) {
+    if (!risks.scores.length) return mutedLine("未获取到风险评分");
+    return risks.scores.map((s) => {
+        const label = s.score !== null
+            ? (s.score >= 80 ? "极高风险" : s.score >= 60 ? "高风险" : s.score >= 40 ? "中风险" : "低风险")
+            : (s.level || "未知");
+        const color = s.score !== null ? (s.score >= 80 ? "#8e0000" : s.score >= 60 ? "#ff3b30" : s.score >= 40 ? "#ff9500" : "#00a67d") : "#8e8e93";
+        const detail = s.score !== null ? String(s.score) : s.level || "";
+        return `<div style="margin-bottom:8px;line-height:1.4"><span style="font-weight:600">${esc(s.name)}</span>`
+            + `<span style="float:right;color:${color};font-weight:700">${esc(label)}</span>`
+            + `<div style="font-size:11px;color:#8e8e93;margin-top:1px">${esc(detail)}</div></div>`;
     }).join("");
 }
 
-function renderFactorCards(factors) {
-    return factors.map((source) => {
-        const hit = Object.keys(source.checks).filter((k) => source.checks[k] === true);
-        const clear = Object.keys(source.checks).filter((k) => source.checks[k] === false);
-        const region = cleanValue(source.country);
-        const lines = [];
-        if (hit.length) lines.push(`<span style="color:#ff453a;font-weight:600">命中 ${esc(hit.join("、"))}</span>`);
-        if (clear.length) lines.push(`<span style="color:#30d158">未命中 ${esc(clear.join("、"))}</span>`);
-        const title = region && region.length === 2
-            ? `${source.name} · ${flagEmoji(region)} [${region.toUpperCase()}]`
-            : source.name;
-        return `<div style="margin-bottom:11px"><div style="font-weight:700">${esc(title)}</div>`
-            + `<div style="margin-top:2px;font-size:12px;line-height:1.5">${lines.join('<br/>')}</div></div>`;
-    }).join("");
+function renderFlagSummary(flagMap) {
+    const keys = Object.keys(flagMap);
+    if (!keys.length) return mutedLine("未获取到风险标记");
+    const hit = keys.filter((k) => flagMap[k].hit);
+    const clear = keys.filter((k) => !flagMap[k].hit);
+    const parts = [];
+    if (hit.length) parts.push(`<div style="margin-bottom:8px"><span style="color:#ff453a;font-weight:600">命中</span><div style="margin-top:4px;font-size:12px;line-height:1.6">${hit.map((k) => `<span style="display:inline-block;background:#3a1a1a;color:#ff453a;border-radius:4px;padding:2px 8px;margin:2px">${esc(k)}</span> <span style="font-size:10px;color:#8e8e93">${flagMap[k].sources.join("/")}</span>`).join(" ")}</div></div>`);
+    if (clear.length) parts.push(`<div><span style="color:#30d158;font-weight:600">未命中</span><div style="margin-top:4px;font-size:12px;line-height:1.6">${clear.map((k) => `<span style="display:inline-block;background:#1a3a1a;color:#30d158;border-radius:4px;padding:2px 8px;margin:2px">${esc(k)}</span> <span style="font-size:10px;color:#8e8e93">${flagMap[k].sources.join("/")}</span>`).join(" ")}</div></div>`);
+    return parts.join("");
 }
 
-function renderMediaList(rows) {
-    const confirmed = rows.filter((r) => r.status !== "unknown");
-    const unknown = rows.filter((r) => r.status === "unknown");
+function renderMediaSummary(media) {
+    if (!media || !media.length) return mutedLine("流媒体检测已关闭");
+    const confirmed = media.filter((r) => r.status !== "unknown");
+    const unknown = media.filter((r) => r.status === "unknown");
     const body = confirmed.map((r) => {
         const st = mediaStatus(r.status);
         const icon = r.status === "yes" ? "✅" : r.status === "partial" ? "🟠" : "❌";
-        const summary = `${st.text}${r.region ? ' · [' + r.region + ']' : ''}`;
+        const summary = `${st.text}${r.region ? ' [' + r.region + ']' : ''}`;
         const detail = r.detail ? `<div style="font-size:11px;color:#8e8e93;margin-top:1px">${esc(r.detail)}</div>` : "";
-        return `<div style="margin-bottom:10px"><span>${icon}</span>&nbsp;<span style="font-weight:700">${esc(r.name)}</span>&nbsp;&nbsp;<span style="color:${st.color};font-weight:600">${esc(summary)}</span>${detail}</div>`;
+        return `<div style="margin-bottom:8px"><span>${icon}</span>&nbsp;<span style="font-weight:700">${esc(r.name)}</span>&nbsp;&nbsp;<span style="color:${st.color};font-weight:600">${esc(summary)}</span>${detail}</div>`;
     }).join("");
     const unknownLine = unknown.length ? mutedLine(`⚪ 未确认：${unknown.map((r) => r.name).join("、")}`) : "";
-    return (body || mutedLine("本次没有确认任何服务状态")) + unknownLine;
+    return (body || mutedLine("未确认任何服务")) + unknownLine;
 }
 
-function renderAudit(audit, probe) {
-    const sourceStatus = `来源 ${audit.success.length}/${audit.total}`;
-    const probeStatus = probe && probe.total
-        ? `出口 ${probe.matched}/${probe.total}${probe.unique > 1 ? ' · 存在分流差异' : ' · 一致'}`
-        : "";
-    const summary = [sourceStatus, probeStatus].filter(Boolean).join("　");
-    const missing = audit.failed.length ? mutedLine(`未返回 · ${audit.failed.join("、")}`) : mutedLine("全部数据来源已返回");
-    const skipped = audit.skipped && audit.skipped.length ? mutedLine(`已跳过 · ${audit.skipped.join("、")}`) : "";
-    const supplemental = audit.supplemental && audit.supplemental.length ? mutedLine(`补充来源 · ${audit.supplemental.join("、")}`) : "";
-    return infoLine("状态", summary) + missing + skipped + supplemental;
-}
-
-// ============== 辅助函数 ==============
-
-function esc(text) {
-    return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+function renderAuditSummary(audit) {
+    const summary = `来源 ${audit.success.length}/${audit.total}`;
+    const missing = audit.failed.length ? mutedLine(`未返回 · ${audit.failed.join("、")}`) : mutedLine("全部已返回");
+    return infoLine("状态", summary) + missing;
 }
 
 function mediaStatus(status) {
@@ -707,568 +494,168 @@ function mediaStatus(status) {
     return { text: "未确认", color: "#8e8e93" };
 }
 
-function riskColor(severity) {
-    if (severity >= 4) return "#8e0000";
-    if (severity >= 3) return "#ff3b30";
-    if (severity >= 2) return "#ff9500";
-    return "#00a67d";
-}
-
-function reportColor(rows) {
-    const severities = rows.filter((r) => r.available && r.severity !== null && r.affectsReport !== false).map((r) => r.severity);
-    if (!severities.length) return "#8e8e93";
-    const highest = Math.max.apply(null, severities);
-    return highest >= 3 ? "#ff453a" : highest >= 2 ? "#ff9f0a" : "#30d158";
-}
-
-function mediaResult(name, status, region, detail) {
-    return { name, status, region: region || "", detail: detail || "" };
-}
-
-function infoLine(label, value) {
-    return `<div style="margin-bottom:8px;line-height:1.4"><span style="color:#8e8e93;font-size:12px">${esc(label)}</span>&nbsp;&nbsp;<span style="font-weight:600">${esc(value)}</span></div>`;
-}
-
-function mutedLine(value) {
-    return `<div style="color:#8e8e93;font-size:11px;margin:5px 0;line-height:1.45">${esc(value)}</div>`;
-}
-
-function browserHeaders() {
-    return {
-        Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": USER_AGENT,
-    };
-}
-
-function backendHeaders() {
-    return { Accept: "application/json", "User-Agent": "curl/8.7.1" };
-}
+function esc(text) { return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function infoLine(l, v) { return `<div style="margin-bottom:6px;line-height:1.4"><span style="color:#8e8e93;font-size:12px">${esc(l)}</span>&nbsp;&nbsp;<span style="font-weight:600">${esc(v)}</span></div>`; }
+function mutedLine(v) { return `<div style="color:#8e8e93;font-size:11px;margin:5px 0;line-height:1.45">${esc(v)}</div>`; }
+function browserHeaders() { return { Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9", "User-Agent": USER_AGENT }; }
+function backendHeaders() { return { Accept: "application/json", "User-Agent": "curl/8.7.1" }; }
 
 function requestJson(url, options) {
     const config = options || {};
-    return request(config.method || "GET", url, config).then((response) => {
-        try { return JSON.parse(response.body); }
-        catch (_) { throw new Error("JSON 响应解析失败"); }
-    });
+    return request(config.method || "GET", url, config).then((r) => { try { return JSON.parse(r.body); } catch (_) { throw new Error("JSON 解析失败"); } });
 }
-
-function requestText(url, options) {
-    const config = options || {};
-    return request(config.method || "GET", url, config).then((response) => response.body);
-}
-
+function requestText(url, options) { const c = options || {}; return request(c.method || "GET", url, c).then((r) => r.body); }
 function request(method, url, options) {
     const config = options || {};
     return new Promise((resolve, reject) => {
-        const backendRequest = String(url).indexOf(IPQUALITY_BACKEND) === 0;
-        const requestOptions = {
-            url,
-            node: cleanValue(config.node) || nodeName,
-            headers: config.headers || (backendRequest ? backendHeaders() : browserHeaders()),
+        const isBackend = String(url).indexOf(IPQUALITY_BACKEND) === 0;
+        const opts = { url, node: cleanValue(config.node) || nodeName, headers: config.headers || (isBackend ? backendHeaders() : browserHeaders()) };
+        if (isBackend) opts.alpn = "h2";
+        if (numberOrNull(config.timeout) !== null) opts.timeout = Number(config.timeout);
+        if (typeof config.body !== "undefined") opts.body = config.body;
+        const cb = (err, resp, body) => {
+            if (err) { reject(new Error(String(err))); return; }
+            const s = Number(resp && (resp.status || resp.statusCode));
+            if (!config.allowHttpErrors && (!Number.isFinite(s) || s < 200 || s >= 300)) { reject(new Error(`HTTP ${s || "?"}`)); return; }
+            resolve({ status: s, body: String(body || ""), response: resp || {} });
         };
-        if (backendRequest) requestOptions.alpn = "h2";
-        if (numberOrNull(config.timeout) !== null) requestOptions.timeout = Number(config.timeout);
-        if (typeof config.body !== "undefined") requestOptions.body = config.body;
-        const callback = (error, response, body) => {
-            if (error) { reject(new Error(String(error))); return; }
-            const status = Number(response && (response.status || response.statusCode));
-            if (!config.allowHttpErrors && (!Number.isFinite(status) || status < 200 || status >= 300)) {
-                reject(new Error(`HTTP ${status || "?"}`)); return;
-            }
-            resolve({ status, body: String(body || ""), response: response || {} });
-        };
-        if (String(method).toUpperCase() === "POST") $httpClient.post(requestOptions, callback);
-        else $httpClient.get(requestOptions, callback);
+        if (String(method).toUpperCase() === "POST") $httpClient.post(opts, cb); else $httpClient.get(opts, cb);
     });
 }
 
-function capture(promise) {
-    return Promise.resolve(promise).then(
-        (value) => ({ ok: true, value }),
-        (error) => ({ ok: false, error: errorMessage(error) })
-    );
+function readSwitch(key, def) { const v = $persistentStore.read(key); if (v === null || v === "" || typeof v === "undefined") return def; return !(v === false || v === 0 || v === "false" || v === "0"); }
+function isIPv4(v) { const p = String(v || "").trim().split("."); return p.length === 4 && p.every((x) => /^\d{1,3}$/.test(x) && Number(x) >= 0 && Number(x) <= 255); }
+function normalizeIPAddress(v) {
+    const t = String(v || "").trim().toLowerCase();
+    if (!t || !isIPv4(t) && !(/^[0-9a-f:]+$/i.test(t) && t.indexOf(":") >= 0)) return "";
+    if (isIPv4(t)) return t;
+    try { return new URL(`http://[${t}]/`).hostname.replace(/^\[|\]$/g, "").toLowerCase(); } catch (_) { return t; }
 }
-
-function readSwitch(key, defaultValue) {
-    const value = $persistentStore.read(key);
-    if (value === null || typeof value === "undefined" || value === "") return defaultValue;
-    return !(value === false || value === 0 || value === "false" || value === "0");
+function cleanValue(v) { if (v === null || typeof v === "undefined") return ""; const t = String(v).trim(); if (!t || /^(null|undefined|n\/a|unknown|-)$/i.test(t)) return ""; return t; }
+function cleanASN(v) { const c = cleanValue(v).replace(/^AS/i, ""); const m = c.match(/^\d+/); return m ? m[0] : ""; }
+function numberOrNull(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
+function truncateText(v, m) { const t = String(v || ""); const l = Number(m) || 0; return l > 1 && t.length > l ? t.slice(0, l - 1) + "…" : t; }
+function splitCoordinate(v, i) { const p = String(v || "").split(","); return p.length > i ? p[i] : null; }
+function anyTrue(vals) { const n = vals.map(booleanOrNull); if (n.some((v) => v === true)) return true; if (n.length && n.every((v) => v === false)) return false; return null; }
+function booleanOrNull(v) { if (v === true || v === "true" || v === 1 || v === "1") return true; if (v === false || v === "false" || v === 0 || v === "0") return false; return null; }
+function valueAt(obj, path) { if (!obj) return null; const k = String(path).split("."); let v = obj; for (let i = 0; i < k.length; i++) { if (v === null || typeof v === "undefined") return null; v = v[k[i]]; } return v; }
+function round(v, d) { const f = Math.pow(10, d); return Math.round(v * f) / f; }
+function errorMessage(e) { return e && e.message ? e.message : String(e || "未知错误"); }
+function flagEmoji(code) { const c = String(code || "").toUpperCase(); if (!/^[A-Z]{2}$/.test(c)) return ""; return String.fromCodePoint(c.codePointAt(0) - 65 + 0x1F1E6, c.codePointAt(1) - 65 + 0x1F1E6); }
+function toDMS(v, lat) {
+    const n = Number(v); if (!Number.isFinite(n)) return "";
+    const a = Math.abs(n); let d = Math.floor(a); const mf = (a - d) * 60; let m = Math.floor(mf); let s = round((mf - m) * 60, 2);
+    if (s >= 60) { s = 0; m += 1; } if (m >= 60) { m = 0; d += 1; }
+    const dir = lat ? (n >= 0 ? "N" : "S") : (n >= 0 ? "E" : "W");
+    return `${d}°${m}′${s}″${dir}`;
 }
-
-function isIPAddress(value) {
-    if (!value) return false;
-    const text = String(value).trim();
-    return isIPv4(text) || (/^[0-9a-f:]+$/i.test(text) && text.indexOf(":") >= 0);
+function buildMapURL(lat, lon, r) {
+    let z = 15; const a = numberOrNull(r);
+    if (a !== null && a > 1000) z = 12; else if (a !== null && a > 500) z = 13; else if (a !== null && a > 250) z = 14;
+    return `https://maps.apple.com/?ll=${lat},${lon}&q=${encodeURIComponent("节点 IP 出口")}&z=${z}&t=m`;
 }
-
-function isIPv4(value) {
-    const parts = String(value || "").trim().split(".");
-    return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
-}
-
-function normalizeIPAddress(value) {
-    const text = String(value || "").trim().toLowerCase();
-    if (!isIPAddress(text)) return "";
-    if (isIPv4(text)) return text;
-    try { return new URL(`http://[${text}]/`).hostname.replace(/^\[|\]$/g, "").toLowerCase(); }
-    catch (_) { return text; }
-}
-
-function loonNetworkProfile(ip) {
-    const result = { source: "Loon", asn: "", organization: "", route: "" };
-    if (typeof $utils === "undefined") return result;
-    try { if (typeof $utils.ipasn === "function") result.asn = cleanASN($utils.ipasn(ip)); }
-    catch (e) { errLog(`Loon ASN 查询失败: ${errorMessage(e)}`); }
-    try { if (typeof $utils.ipaso === "function") result.organization = cleanValue($utils.ipaso(ip)); }
-    catch (e) { errLog(`Loon ASO 查询失败: ${errorMessage(e)}`); }
-    return result;
-}
-
-function cloudflareTraceIP(value) {
-    const match = String(value || "").match(/(?:^|\n)ip=([^\r\n]+)/);
-    return match ? match[1].trim() : "";
-}
-
-function maskIPAddress(ip) {
-    if (!maskIP || !ip) return ip;
-    const text = String(ip);
-    const parts = text.split(".");
-    if (parts.length === 4) return `${parts[0]}.${parts[1]}.*.*`;
-    const v6 = text.split(":");
-    return v6.length > 3 ? `${v6.slice(0, 4).join(":")}:*` : text;
-}
-
-function valueAt(object, path) {
-    if (!object) return null;
-    const keys = String(path).split(".");
-    let value = object;
-    for (let i = 0; i < keys.length; i += 1) {
-        if (value === null || typeof value === "undefined") return null;
-        value = value[keys[i]];
-    }
-    return value;
-}
-
-function proxycheckRecord(payload) {
-    if (!payload || String(payload.status || "").toLowerCase() !== "ok") return null;
-    const key = Object.keys(payload).find((name) => {
-        return name !== "status" && name !== "query time" && name !== "message"
-            && payload[name] && typeof payload[name] === "object";
-    });
-    return key ? payload[key] : null;
-}
-
-function uniqueValues(values) {
-    const result = [];
-    (values || []).forEach((value) => {
-        const clean = cleanValue(value);
-        if (clean && result.indexOf(clean) < 0) result.push(clean);
-    });
-    return result;
-}
-
-function mergeFallback(primary, fallback) {
-    if (Array.isArray(primary)) {
-        if (!primary.length) return Array.isArray(fallback) ? fallback : primary;
-        if (!Array.isArray(fallback)) return primary;
-        return primary.map((item, index) => mergeFallback(item, fallback[index]));
-    }
-    if (primary && typeof primary === "object") {
-        const result = {};
-        const backup = fallback && typeof fallback === "object" ? fallback : {};
-        const keys = uniqueValues(Object.keys(primary).concat(Object.keys(backup)));
-        keys.forEach((key) => { result[key] = mergeFallback(primary[key], backup[key]); });
-        return result;
-    }
-    return cleanValue(primary) ? primary : fallback;
-}
-
-function cleanASN(value) {
-    const clean = cleanValue(value).replace(/^AS/i, "");
-    const match = clean.match(/^\d+/);
-    return match ? match[0] : "";
-}
-
-function splitCoordinate(value, index) {
-    const parts = String(value || "").split(",");
-    return parts.length > index ? parts[index] : null;
-}
-
-function firstNumber(values) {
-    for (let i = 0; i < values.length; i += 1) {
-        const number = numberOrNull(values[i]);
-        if (number !== null) return number;
-    }
-    return null;
-}
-
-function anyTrue(values) {
-    const normalized = values.map(booleanOrNull);
-    if (normalized.some((v) => v === true)) return true;
-    if (normalized.length && normalized.every((v) => v === false)) return false;
-    return null;
-}
-
-function booleanOrNull(value) {
-    if (value === true || value === "true" || value === 1 || value === "1") return true;
-    if (value === false || value === "false" || value === 0 || value === "0") return false;
-    return null;
-}
-
-function yesNoOrNull(value) {
-    const text = String(value === null || typeof value === "undefined" ? "" : value).trim().toLowerCase();
-    if (text === "yes") return true;
-    if (text === "no") return false;
-    return booleanOrNull(value);
-}
-
 function formatType(type) {
-    const clean = cleanValue(type);
-    if (!clean) return "未取到";
-    const phraseMap = {
-        "DATA CENTER/WEB HOSTING/TRANSIT": "机房", "FIXED LINE ISP": "家宽",
-        "MOBILE ISP": "手机", "CONTENT DELIVERY NETWORK": "CDN",
-        "DATA CENTER/TRANSIT": "机房", "SEARCH ENGINE SPIDER": "搜索引擎",
-        "UNIVERSITY/COLLEGE/SCHOOL": "教育",
-    };
-    if (phraseMap[clean.toUpperCase()]) return phraseMap[clean.toUpperCase()];
-    const map = {
-        DCH: "机房", WEB: "机房", SES: "搜索引擎", HOSTING: "机房",
-        ISP: "家宽", RES: "住宅", RESIDENTIAL: "住宅", BUSINESS: "商业",
-        COMMERCIAL: "商业", BANKING: "银行", COM: "商业", MOB: "手机",
-        MOBILE: "手机", CDN: "CDN", EDU: "教育", MIL: "军队", MILITARY: "军队",
-        LIB: "图书馆", LIBRARY: "图书馆", RSV: "保留", RESERVED: "保留",
-        GOVERNMENT: "政府", GOV: "政府", ORG: "组织", ORGANIZATION: "组织",
-    };
-    const first = clean.split("/")[0].trim();
-    const key = first.toUpperCase();
-    return map[key] || first;
+    const c = cleanValue(type); if (!c) return "未取到";
+    const pm = { "DATA CENTER/WEB HOSTING/TRANSIT": "机房", "FIXED LINE ISP": "家宽", "MOBILE ISP": "手机", "CONTENT DELIVERY NETWORK": "CDN", "DATA CENTER/TRANSIT": "机房", "SEARCH ENGINE SPIDER": "搜索引擎", "UNIVERSITY/COLLEGE/SCHOOL": "教育" };
+    if (pm[c.toUpperCase()]) return pm[c.toUpperCase()];
+    const m = { DCH: "机房", WEB: "机房", SES: "搜索引擎", HOSTING: "机房", ISP: "家宽", RES: "住宅", RESIDENTIAL: "住宅", BUSINESS: "商业", COMMERCIAL: "商业", BANKING: "银行", COM: "商业", MOB: "手机", MOBILE: "手机", CDN: "CDN", EDU: "教育", MIL: "军队", MILITARY: "军队", LIB: "图书馆", LIBRARY: "图书馆", RSV: "保留", RESERVED: "保留", GOVERNMENT: "政府", GOV: "政府", ORG: "组织", ORGANIZATION: "组织" };
+    const f = c.split("/")[0].trim().toUpperCase(); return m[f] || f;
 }
-
-function formatTypeWithRaw(type) {
-    const clean = cleanValue(type);
-    if (!clean) return "—";
-    const formatted = formatType(clean);
-    return formatted.toLowerCase() === clean.toLowerCase() ? formatted : `${formatted} (${clean})`;
+function getIp2location(data) {
+    const f = data && data.ip2locationFull;
+    if (f && typeof f === "object" && (cleanValue(f.ip) || cleanValue(f.usage_type) || numberOrNull(f.fraud_score) !== null || f.proxy)) return f;
+    return null;
 }
-
-function cleanValue(value) {
-    if (value === null || typeof value === "undefined") return "";
-    const text = String(value).trim();
-    if (!text || /^(null|undefined|n\/a|unknown|-)$/i.test(text)) return "";
-    return text;
-}
-
-function truncateText(value, maxLength) {
-    const text = String(value || "");
-    const limit = Number(maxLength) || 0;
-    return limit > 1 && text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
-}
-
-function toDMS(value, latitude) {
-    const number = Number(value);
-    if (!Number.isFinite(number)) return "";
-    const absolute = Math.abs(number);
-    let degrees = Math.floor(absolute);
-    const minutesFloat = (absolute - degrees) * 60;
-    let minutes = Math.floor(minutesFloat);
-    let seconds = round((minutesFloat - minutes) * 60, 2);
-    if (seconds >= 60) { seconds = 0; minutes += 1; }
-    if (minutes >= 60) { minutes = 0; degrees += 1; }
-    const direction = latitude ? (number >= 0 ? "N" : "S") : (number >= 0 ? "E" : "W");
-    return `${degrees}°${minutes}′${seconds}″${direction}`;
-}
-
-function buildMapURL(latitude, longitude, radius) {
-    let zoom = 15;
-    const accuracy = numberOrNull(radius);
-    if (accuracy !== null && accuracy > 1000) zoom = 12;
-    else if (accuracy !== null && accuracy > 500) zoom = 13;
-    else if (accuracy !== null && accuracy > 250) zoom = 14;
-    const label = encodeURIComponent("节点 IP 出口");
-    return `https://maps.apple.com/?ll=${latitude},${longitude}&q=${label}&z=${zoom}&t=m`;
-}
-
-function firstMatch(text, patterns) {
-    for (let i = 0; i < patterns.length; i += 1) {
-        const match = String(text).match(patterns[i]);
-        if (match) return match[1];
-    }
-    return "";
-}
-
-function flagEmoji(countryCode) {
-    const code = String(countryCode || "").toUpperCase();
-    if (!/^[A-Z]{2}$/.test(code)) return "";
-    return String.fromCodePoint(code.codePointAt(0) - 65 + 0x1F1E6, code.codePointAt(1) - 65 + 0x1F1E6);
-}
-
-function numberOrNull(value) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : null;
-}
-
-function round(value, decimals) {
-    const factor = Math.pow(10, decimals);
-    return Math.round(value * factor) / factor;
-}
-
-function escapeRegExp(text) {
-    return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function errorMessage(error) {
-    return error && error.message ? error.message : String(error || "未知错误");
-}
-
-function finishError(message) {
-    $done({
-        title: "\u200B",
-        htmlMessage: `<div style="font-family:-apple-system,BlinkMacSystemFont;font-size:14px;text-align:center;padding:40px 20px;color:#ff3b30">${esc(message)}</div>`,
-        icon: "shield.lefthalf.filled",
-        "title-color": "#ff3b30",
-    });
-}
-
-function postMapNotification(basic, displayNodeName) {
-    if (!mapNotificationEnabled || !basic.latitude || !basic.longitude) return;
-    try {
-        const url = buildMapURL(basic.latitude, basic.longitude, 0);
-        $notification.post("节点 IP 位置", `节点 · ${displayNodeName}`, url);
-    } catch (e) {
-        errLog(`地图通知失败: ${errorMessage(e)}`);
-    }
-}
-
-// 以下是原文件中保留的辅助函数（buildTypes, buildRisks, buildFactors, buildAudit, parseIpregistry, parseIp2location, parseScamalyticsHtml, getIp2location, parseDbip, parseDbipRisk, scoreRisk, unavailableRisk, ipqsUpstreamUnavailable, ipapiSeverity, translateRisk, typeRow 等保持原逻辑不变）
-// 因篇幅限制，这些函数直接从原文件复制，未做改动
-
-// ============== 以下为原文件保留的辅助函数 ==============
-
-function buildTypes(data) {
-    const ip2 = getIp2location(data);
-    const ipqs = data.ipqs && data.ipqs.success !== false ? data.ipqs : null;
-    const ippure = data.ippure && !data.ippure._egressMismatch ? data.ippure : {};
-    return [
-        typeRow("IP2Location", ip2 ? ip2.usage_type : null, null),
-        typeRow("ipapi", valueAt(data.ipapi, "location.country_code") ? valueAt(data.ipapi, "asn.type") : null, null),
-        typeRow("IPQS", ipqs ? ipqs.connection_type : null, null),
-        typeRow("IPPure", ippure ? ippure.usageType : null, null),
-    ].filter((r) => r.usage || r.company);
-}
-
-function buildRisks(data) {
-    const ipqs = data.ipqs && data.ipqs.success !== false ? data.ipqs : null;
-    const scamRoot = data.scamalytics;
-    const scam = scamRoot && scamRoot.scamalytics ? scamRoot.scamalytics : null;
-    const ip2 = getIp2location(data);
-    const ipapi = data.ipapi;
-    return [
-        ipqs ? scoreRisk("IPQS", ipqs.fraud_score, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : unavailableRisk("IPQS"),
-        scam ? scoreRisk("Scamalytics", scam.scamalytics_score, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : unavailableRisk("Scamalytics"),
-        ip2 ? scoreRisk("IP2Location", ip2.fraud_score, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : unavailableRisk("IP2Location"),
-        ipapi ? (ipapi.risk_score != null ? scoreRisk("ipapi", ipapi.risk_score, [[80, 4, "极高风险"], [60, 3, "高风险"], [40, 2, "中风险"], [0, 1, "低风险"]]) : (ipapi.risk_level ? { name: "ipapi", available: true, severity: ipapiSeverity(ipapi.risk_level), label: translateRisk(ipapi.risk_level), detail: String(ipapi.risk_level || "") } : unavailableRisk("ipapi"))) : unavailableRisk("ipapi"),
-    ].filter(Boolean);
-}
-
-function buildFactors(data) {
-    const ipinfo = data.ipinfo && data.ipinfo.data ? data.ipinfo.data : null;
-    const ipapi = data.ipapi;
-    const ip2 = getIp2location(data);
-    const ip2Proxy = ip2 && ip2.proxy ? ip2.proxy : {};
-    const ipqs = data.ipqs && data.ipqs.success !== false ? data.ipqs : null;
-    const scamRoot = data.scamalytics;
-    const scam = scamRoot && scamRoot.scamalytics ? scamRoot.scamalytics : null;
-    return [
-        factorSource("IP2Location", ip2 ? {
-            country: ip2.country_code,
-            checks: { 代理: anyTrue([ip2.is_proxy, ip2Proxy.is_public_proxy, ip2Proxy.is_web_proxy]), Tor: ip2Proxy.is_tor, VPN: ip2Proxy.is_vpn, 机房: ip2Proxy.is_data_center, 滥用: ip2Proxy.is_spammer, 机器人: anyTrue([ip2Proxy.is_web_crawler, ip2Proxy.is_scanner, ip2Proxy.is_botnet]) },
-        } : null),
-        factorSource("ipapi", ipapi ? {
-            country: valueAt(ipapi, "location.country_code"),
-            checks: { VPN: ipapi.is_vpn, 代理: ipapi.is_proxy, Tor: ipapi.is_tor, 机房: ipapi.is_datacenter, 滥用: ipapi.is_abuser, 爬虫: ipapi.is_crawler },
-        } : null),
-        factorSource("IPQS", ipqs ? {
-            country: ipqs.country_code,
-            checks: { 代理: ipqs.proxy, Tor: ipqs.tor, VPN: ipqs.vpn, 机房: null, 滥用: ipqs.recent_abuse, 机器人: ipqs.bot_status },
-        } : null),
-        factorSource("Scamalytics", scam ? {
-            country: valueAt(scamRoot, "external_datasources.maxmind_geolite2.ip_country_code"),
-            checks: { 代理: valueAt(scamRoot, "external_datasources.firehol.is_proxy"), Tor: valueAt(scamRoot, "external_datasources.x4bnet.is_tor"), VPN: valueAt(scam, "scamalytics_proxy.is_vpn"), 机房: valueAt(scam, "scamalytics_proxy.is_datacenter"), 滥用: scam.is_blacklisted_external, 机器人: anyTrue([valueAt(scamRoot, "external_datasources.x4bnet.is_blacklisted_spambot"), valueAt(scamRoot, "external_datasources.x4bnet.is_bot_operamini"), valueAt(scamRoot, "external_datasources.x4bnet.is_bot_semrush")]) },
-        } : null),
-        factorSource("IPinfo", ipinfo ? {
-            country: ipinfo.country,
-            checks: { VPN: valueAt(ipinfo, "privacy.vpn"), 代理: valueAt(ipinfo, "privacy.proxy"), Tor: valueAt(ipinfo, "privacy.tor"), 中继: valueAt(ipinfo, "privacy.relay"), 机房: valueAt(ipinfo, "privacy.hosting") },
-        } : null),
-    ].filter((s) => s.available);
-}
-
-function factorSource(name, values) {
-    const source = Object.assign({ name, country: null, checks: {} }, values || {});
-    const booleanCount = Object.keys(source.checks).filter((k) => booleanOrNull(source.checks[k]) !== null).length;
-    source.available = booleanCount > 0;
-    return source;
-}
-
-function parseIpregistry(payload) {
-    if (!payload || typeof payload !== "object") return null;
-    const security = payload.security || {};
-    const result = {
-        usageType: cleanValue(valueAt(payload, "connection.type")),
-        companyType: cleanValue(valueAt(payload, "company.type")),
-        country: cleanValue(valueAt(payload, "location.country.code")) || cleanValue(valueAt(payload, "location.country_code")),
-        proxy: booleanOrNull(security.is_proxy),
-        tor: anyTrue([security.is_tor, security.is_tor_exit]),
-        vpn: booleanOrNull(security.is_vpn),
-        server: booleanOrNull(security.is_cloud_provider),
-        abuser: booleanOrNull(security.is_abuser),
-        relay: null, anonymous: null, threat: null,
-    };
-    const hasData = result.usageType || result.companyType || result.country
-        || Object.keys(result).some((k) => typeof result[k] === "boolean");
-    return hasData ? result : null;
-}
-
-function parseIp2location(html) {
-    if (!html) return null;
-    const text = String(html);
-    const usage = text.match(/Usage\s*Type<\/label>\s*<p[^>]*>\s*\(([A-Z]+(?:\/[A-Z]+)*)\)/i)
-        || text.match(/Usage\s*Type<\/label>\s*<p[^>]*>\s*([A-Z]+(?:\/[A-Z]+)*)\b/i);
-    const fraud = text.match(/Fraud\s*Score<\/label>\s*<p[^>]*>\s*(\d+(?:\.\d+)?)/i);
-    const proxyBlock = text.match(/>Proxy<\/label>\s*<p[^>]*>([\s\S]{0,300}?)<\/p>/i);
-    const proxy = proxyBlock ? proxyBlock[1].match(/\b(Yes|No)\b/i) : null;
-    const proxyType = text.match(/Proxy\s*Type<\/label>\s*<p[^>]*>\s*([^<]+)/i);
-    const threat = text.match(/>Threat<\/label>\s*<p[^>]*>\s*([^<]+)/i);
-    const addressType = text.match(/Address\s*Type<\/label>\s*<p[^>]*>\s*([^<]+)/i);
-    const country = text.match(/>Country<\/label>[\s\S]{0,400}?<a[^>]*>([^(<]+)\(([A-Z]{2})\)<\/a>/i);
-    const city = text.match(/>City<\/label>\s*<p[^>]*>\s*([^<]+)<\/p>/i);
-    const asn = text.match(/>ASN<\/label>[\s\S]{0,400}?<a[^>]*>\s*(?:AS)?(\d+)<\/a>/i);
-    const asOrg = text.match(/>AS<\/label>[\s\S]{0,400}?<a[^>]*>\s*([^<]+)<\/a>/i);
-    const latitude = text.match(/>Latitude<\/label>\s*<p[^>]*>\s*(-?\d+(?:\.\d+)?)/i);
-    const longitude = text.match(/>Longitude<\/label>\s*<p[^>]*>\s*(-?\d+(?:\.\d+)?)/i);
-    if (!usage && !fraud && !proxy && !country && !asn) return null;
-    return {
-        usageType: usage ? usage[1].toUpperCase() : null,
-        fraudScore: fraud ? Number(fraud[1]) : null,
-        proxy: proxy ? proxy[1].toLowerCase() === "yes" : null,
-        proxyType: proxyType ? cleanValue(proxyType[1]) : null,
-        threat: threat ? cleanValue(threat[1]) : null,
-        addressType: addressType ? cleanValue(addressType[1]) : null,
-        country: country ? cleanValue(country[1]) : null,
-        countryCode: country ? country[2].toUpperCase() : null,
-        city: city ? cleanValue(city[1]) : null,
-        asn: asn ? asn[1] : null,
-        asOrg: asOrg ? cleanValue(asOrg[1]) : null,
-        latitude: latitude ? Number(latitude[1]) : null,
-        longitude: longitude ? Number(longitude[1]) : null,
-    };
-}
-
 function parseScamalyticsHtml(html, ip) {
     if (!html || /Attention Required|unable to access|cf-error-details/i.test(String(html))) return null;
-    const text = String(html);
-    const targetIP = normalizeIPAddress(ip);
-    const ipPattern = targetIP ? new RegExp(`(^|[^0-9a-f:.])${escapeRegExp(targetIP)}([^0-9a-f:.]|$)`, "i") : null;
-    if (!ipPattern || !/Scamalytics/i.test(text) || !ipPattern.test(text)) return null;
-    const score = text.match(/Fraud\s*Score\s*[:：]?\s*(?:<[^>]+>\s*){0,3}(\d{1,3})(?!\d)/i);
-    if (!score) return null;
-    const scoreValue = Number(score[1]);
-    if (!Number.isFinite(scoreValue) || scoreValue < 0 || scoreValue > 100) return null;
-    return { ip, scamalytics: { scamalytics_score: scoreValue, scamalytics_proxy: { is_vpn: null, is_datacenter: null }, is_blacklisted_external: null }, _fallback: true };
+    const t = String(html); const ti = normalizeIPAddress(ip);
+    const ipP = ti ? new RegExp(`(^|[^0-9a-f:.])${escapeRegExp(ti)}([^0-9a-f:.]|$)`, "i") : null;
+    if (!ipP || !/Scamalytics/i.test(t) || !ipP.test(t)) return null;
+    const sc = t.match(/Fraud\s*Score\s*[:：]?\s*(?:<[^>]+>\s*){0,3}(\d{1,3})(?!\d)/i);
+    if (!sc) return null; const sv = Number(sc[1]);
+    if (!Number.isFinite(sv) || sv < 0 || sv > 100) return null;
+    return { ip, scamalytics: { scamalytics_score: sv, scamalytics_proxy: { is_vpn: null, is_datacenter: null }, is_blacklisted_external: null }, _fallback: true };
+}
+function escapeRegExp(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+// 流媒体检测（保持原逻辑）
+async function collectMedia() {
+    const tests = [
+        () => testTikTok(), () => testDisneyPlus(), () => testNetflix(),
+        () => testYouTube(), () => testPrimeVideo(), () => testReddit(), () => testChatGPT(),
+    ];
+    const settled = await limitedConcurrency(tests, MAX_CONCURRENCY);
+    const names = ["TikTok", "Disney+", "Netflix", "YouTube", "Prime Video", "Reddit", "ChatGPT"];
+    return names.map((n, i) => {
+        if (settled[i].ok) return settled[i].value;
+        warn(`${n}: ${settled[i].error}`);
+        return { name: n, status: "unknown", region: "", detail: "请求失败" };
+    });
 }
 
-function getIp2location(data) {
-    const full = data && data.ip2locationFull;
-    if (full && typeof full === "object" && (cleanValue(full.ip) || cleanValue(full.usage_type) || numberOrNull(full.fraud_score) !== null || full.proxy)) return full;
-    const parsed = parseIp2location(data && data.ip2location);
-    if (!parsed) return null;
-    return {
-        country_code: parsed.countryCode, country_name: parsed.country, city_name: parsed.city,
-        latitude: parsed.latitude, longitude: parsed.longitude, asn: parsed.asn, as: parsed.asOrg,
-        usage_type: parsed.usageType, fraud_score: parsed.fraudScore, as_info: { as_usage_type: null },
-        is_proxy: parsed.proxy, proxy: { is_public_proxy: null, is_web_proxy: null, is_tor: null, is_vpn: null, is_data_center: null, is_spammer: null, is_web_crawler: null, is_scanner: null, is_botnet: null },
-        _fallback: true,
-    };
+async function testTikTok() {
+    const r = await request("GET", "https://www.tiktok.com/", { allowHttpErrors: true, headers: browserHeaders() });
+    const region = firstMatch(r.body, [/\"region\"\s*:\s*\"([A-Z]{2})\"/i, /\"storeCountry\"\s*:\s*\"([A-Z]{2})\"/i]);
+    if (region) return { name: "TikTok", status: "yes", region, detail: "页面地区" };
+    if (r.status === 403 || /not available|access denied/i.test(r.body)) return { name: "TikTok", status: "no", region: "", detail: `HTTP ${r.status}` };
+    return { name: "TikTok", status: "unknown", region: "", detail: "未识别" };
 }
-
-function parseDbip(html) {
-    if (!html) return null;
-    const start = String(html).search(/<th class=['"]text-center['"]>Crawler/i);
-    if (start < 0) return null;
-    const block = String(html).slice(start, start + 8000);
-    const matches = [];
-    const pattern = /<span class="sr-only">\s*(Yes|No)(?:&nbsp;|\s)*<\/span>/gi;
-    let match;
-    while ((match = pattern.exec(block)) && matches.length < 3) matches.push(match[1].toLowerCase() === "yes");
-    const country = String(html).match(/"countryCode"\s*:\s*"([A-Z]{2})"/i) || String(html).match(/\/img\/flags\/([A-Z]{2})\.png/i);
-    return {
-        country: country ? country[1].toUpperCase() : null,
-        robot: matches.length > 0 ? matches[0] : null,
-        proxy: matches.length > 1 ? matches[1] : null,
-        tor: null, vpn: null, server: null,
-        abuser: matches.length > 2 ? matches[2] : null,
-    };
+async function testDisneyPlus() {
+    const d = await requestJson("https://disney.api.edge.bamgrid.com/devices", { method: "POST", headers: { Authorization: `Bearer ${DISNEY_CLIENT_TOKEN}`, "Content-Type": "application/json; charset=UTF-8", "User-Agent": USER_AGENT }, body: JSON.stringify({ deviceFamily: "browser", applicationRuntime: "chrome", deviceProfile: "windows", attributes: {} }) });
+    if (!d.assertion) return { name: "Disney+", status: "unknown", region: "", detail: "设备注册失败" };
+    const form = `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&latitude=0&longitude=0&platform=browser&subject_token=${encodeURIComponent(d.assertion)}&subject_token_type=urn%3Abamtech%3Aparams%3Aoauth%3Atoken-type%3Adevice`;
+    const t = await requestJson("https://disney.api.edge.bamgrid.com/token", { method: "POST", allowHttpErrors: true, headers: { Authorization: `Bearer ${DISNEY_CLIENT_TOKEN}`, "Content-Type": "application/x-www-form-urlencoded", "User-Agent": USER_AGENT }, body: form });
+    if (t.error_description === "forbidden-location") return { name: "Disney+", status: "no", region: "", detail: "地理位置受限" };
+    const region = t.region || t.location || "";
+    if (region) return { name: "Disney+", status: "yes", region: region.toUpperCase(), detail: "令牌地区" };
+    return { name: "Disney+", status: "unknown", region: "", detail: "未识别" };
 }
-
-function parseDbipRisk(html) {
-    if (!html) return "";
-    const match = String(html).match(/Estimated threat level for this IP address is\s*<span[^>]*>\s*([^<\s]+)/i);
-    return match ? String(match[1]).toLowerCase() : "";
+async function testNetflix() {
+    const rs = await Promise.all([
+        request("GET", "https://www.netflix.com/title/70143836", { allowHttpErrors: true }),
+        request("GET", "https://www.netflix.com/title/80018499", { allowHttpErrors: true }),
+        request("GET", "https://www.netflix.com/title/70143860", { allowHttpErrors: true }),
+        request("GET", "https://www.netflix.com/title/70202589", { allowHttpErrors: true }),
+    ]);
+    const ua = rs.map((r) => /Oh no!|NSEZ-404/i.test(r.body));
+    const avail = ua.filter((v) => !v).length;
+    if (avail >= 2) { const reg = firstMatch(rs[0].body, [/\"countryOfManufacture\"\s*:\s*\"([A-Z]{2})\"/i, /\"locale\"\s*:\s*\"([a-z]{2})-?/i]); return { name: "Netflix", status: "yes", region: reg || "", detail: `可看 ${avail}/4` }; }
+    if (avail > 0) return { name: "Netflix", status: "partial", region: "", detail: `可看 ${avail}/4` };
+    return { name: "Netflix", status: "no", region: "", detail: "全部不可用" };
 }
-
-function scoreRisk(name, score, thresholds) {
-    if (score === null) return unavailableRisk(name);
-    for (let i = 0; i < thresholds.length; i += 1) {
-        if (score >= thresholds[i][0]) return { name, available: true, severity: thresholds[i][1], label: thresholds[i][2], detail: String(round(score, 2)) };
-    }
-    return unavailableRisk(name);
+async function testYouTube() {
+    const r = await request("GET", "https://www.youtube.com/premium", { allowHttpErrors: true, headers: browserHeaders() });
+    if (/www\.google\.cn/i.test(r.body)) return { name: "YouTube", status: "no", region: "CN", detail: "跳转 google.cn" };
+    const region = firstMatch(r.body, [/"contentRegion"\s*:\s*"([A-Z]{2})"/i]);
+    if (/Premium is not available in your country/i.test(r.body)) return { name: "YouTube", status: "no", region: region || "", detail: "不支援 Premium" };
+    if (region && /YouTube Premium/i.test(r.body)) return { name: "YouTube", status: "yes", region, detail: "页面地区" };
+    return { name: "YouTube", status: "unknown", region: region || "", detail: "未识别" };
 }
-
-function unavailableRisk(name) {
-    return { name, available: false, severity: 0, label: "", detail: "" };
+async function testPrimeVideo() {
+    const r = await request("GET", "https://www.primevideo.com/", { allowHttpErrors: true, headers: browserHeaders() });
+    const region = firstMatch(r.body, [/"currentTerritory"\s*:\s*"([A-Z]{2})"/i, /"defaultTerritory"\s*:\s*"([A-Z]{2})"/i]);
+    if (region && !/not available in your location/i.test(r.body)) return { name: "Prime Video", status: "yes", region, detail: "页面地区" };
+    if (r.status === 403 || /not available in your location/i.test(r.body)) return { name: "Prime Video", status: "no", region: "", detail: "地区不可用" };
+    return { name: "Prime Video", status: "unknown", region: "", detail: "未识别" };
 }
-
-function ipqsUpstreamUnavailable(data) {
-    return !!(data && data.ipqs && data.ipqs.success === false && /insufficient\s+credits?/i.test(data.ipqs.message || ""));
+async function testReddit() {
+    const r = await request("GET", "https://www.reddit.com/", { allowHttpErrors: true, headers: browserHeaders() });
+    const region = firstMatch(r.body, [/"countryCode"\s*:\s*"([A-Z]{2})"/i, /"geo"\s*:\s*"([A-Z]{2})"/i]);
+    if (region) return { name: "Reddit", status: "yes", region, detail: "页面地区" };
+    return { name: "Reddit", status: "unknown", region: "", detail: "未识别" };
 }
-
-function ipapiSeverity(level) {
-    const value = String(level || "").toLowerCase();
-    if (value === "very high") return 4;
-    if (value === "high") return 3;
-    if (value === "elevated") return 2;
-    return 0;
+async function testChatGPT() {
+    const trace = await request("GET", "https://chatgpt.com/cdn-cgi/trace", { allowHttpErrors: true }).catch(() => null);
+    const region = trace ? firstMatch(trace.body, [/^loc=([A-Z]{2})$/im]) : "";
+    if (region) return { name: "ChatGPT", status: "yes", region, detail: "CDN 地区" };
+    return { name: "ChatGPT", status: "unknown", region: "", detail: "CDN 未识别" };
 }
+function firstMatch(text, patterns) { for (let i = 0; i < patterns.length; i++) { const m = String(text).match(patterns[i]); if (m) return m[1]; } return ""; }
 
-function translateRisk(level) {
-    const map = { "very low": "极低风险", low: "低风险", elevated: "较高风险", high: "高风险", "very high": "极高风险" };
-    return map[String(level || "").toLowerCase()] || String(level || "未知");
+function finishError(msg) {
+    $done({ title: "\u200B", htmlMessage: `<div style="font-family:-apple-system,BlinkMacSystemFont;font-size:14px;text-align:center;padding:40px 20px;color:#ff3b30">${esc(msg)}</div>`, icon: "shield.lefthalf.filled", "title-color": "#ff3b30" });
 }
-
-function typeRow(name, usage, company) {
-    const cleanUsage = cleanValue(usage);
-    const cleanCompany = cleanValue(company);
-    return { name, usage: cleanUsage ? formatTypeWithRaw(cleanUsage) : "", company: cleanCompany ? formatTypeWithRaw(cleanCompany) : "" };
-}
-
-function buildAudit(data) {
-    const ipqsSkipped = ipqsUpstreamUnavailable(data);
-    const ippureMismatch = !!(data.ippure && data.ippure._egressMismatch);
-    const checks = [
-        ["MaxMind", !!(data.maxmind && (data.maxmind.Country || data.maxmind.ASN))],
-        ippureMismatch ? null : ["IPPure", !!(data.ippure && data.ippure.ip)],
-        ["ipapi", !!(data.ipapi && data.ipapi.ip)],
-        ["IPinfo", !!(data.ipinfo && data.ipinfo.data)],
-        ["IP2Location", !!getIp2location(data)],
-        ["Scamalytics", !!(data.scamalytics && numberOrNull(valueAt(data.scamalytics, "scamalytics.scamalytics_score")) !== null)],
-        ipqsSkipped ? null : ["IPQS", !!(data.ipqs && data.ipqs.success !== false && numberOrNull(data.ipqs.fraud_score) !== null)],
-    ].filter(Boolean);
-    return {
-        total: checks.length,
-        success: checks.filter((c) => c[1]).map((c) => c[0]),
-        failed: checks.filter((c) => !c[1]).map((c) => c[0]),
-        skipped: ipqsSkipped ? ["IPQS"] : [],
-        supplemental: [],
-    };
+function postMapNotification(basic, name) {
+    if (!mapNotificationEnabled || !basic.lat || !basic.lon) return;
+    try { $notification.post("节点 IP 位置", `节点 · ${name}`, buildMapURL(basic.lat, basic.lon, 0)); } catch (_) {}
 }
