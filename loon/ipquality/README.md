@@ -1,6 +1,8 @@
 # 节点检测工具
 
 Loon 节点检测工具合集，包含 4 个独立脚本，每个只查一个数据源，快速出结果。
+参考项目: Moli-X/Tool, KOP-XIAO/QuantumultX, xream/scripts
+原作者: MaYIHEI, xream, Keywos, KOP-XIAO, dcpengx
 
 ## 脚本列表
 
