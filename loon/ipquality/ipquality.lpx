@@ -1,0 +1,12 @@
+#!name=节点检测工具
+#!desc=节点检测工具合集：入口落地、地理位置、流媒体解锁、风险评分
+#!author=IamNewHands
+#!homepage=https://github.com/IamNewHands/my-loon-scripts/tree/main/loon/ipquality
+#!tag=节点,IP,风险,流媒体
+#!date=2026-07-19
+
+[Script]
+generic script-path=https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/ipquality/entry-exit.js, tag=入口落地查询, timeout=10, img-url=globe.asia.australia.system, enable=true
+generic script-path=https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/ipquality/location.js, tag=地理位置查询, timeout=10, img-url=location.circle.system, enable=true
+generic script-path=https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/ipquality/unlock.js, tag=节点解锁查询, timeout=20, img-url=play.circle.system, enable=true
+generic script-path=https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/ipquality/risk.js, tag=风险评分查询, timeout=10, img-url=shield.lefthalf.filled.system, enable=true
