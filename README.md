@@ -6,6 +6,7 @@
 
 | 插件 | 说明 | 导入 |
 |------|------|------|
+| **飓风相机专业版** | 飓风相机/Lut 相机解锁专业版（拦截 /storm_auth/user/self 注入永久会员） | [📥](https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/StormCam/StormCam.plugin) |
 | **Documents文件管理器** | Documents 文件管理器+解锁订阅（v8.5） | [📥](https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/Documents/Documents.plugin) |
 | **GitHubPro** | GitHub 客户端解锁永久订阅（1.142.1，除 AI 功能外均可用） | [📥](https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPro/GitHubPro.plugin) |
 | **节点检测工具** | 入口落地、地理位置、流媒体解锁、风险评分 4 个独立脚本 | [📥](https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/ipquality/ipquality.lpx) |
@@ -23,6 +24,10 @@
 my-loon-scripts/
 ├── README.md
 └── loon/
+    ├── StormCam/
+    │   ├── StormCam.plugin    # 飓风相机/Lut相机专业版（需 MITM base.ysjf.com）
+    │   └── JS/
+    │       └── StormCam.js    # 响应伪造脚本（jsjiami v7 混淆 + 反调试）
     ├── Documents/
     │   ├── Documents.plugin   # Documents 文件管理器+解锁订阅（需 MITM *.pdfexpert.com）
     │   └── JS/
