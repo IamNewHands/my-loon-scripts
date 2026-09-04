@@ -1,0 +1,15 @@
+#!name=飓风相机专业版
+#!desc=飓风相机专业版
+#!date=2026-01-21
+#!category=飓风相机专业版
+#!author= 暗夜anyehttp[https://github.com/anyehttp/quantumult-x]
+#!homepage=https://github.com/IamNewHands/my-loon-scripts/tree/main/loon/StormCam
+#!icon=https://raw.githubusercontent.com/BOBOLAOSHIV587/Rules/main/Icons/AppIcons/Image/App/StormCam.png
+#!openUrl = https://apps.apple.com/app/id6749835845
+
+[Script]
+# > 飓风相机专业版
+http-response ^https://base\.ysjf\.com/storm_auth/user/self script-path=https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/StormCam/JS/StormCam.js, requires-body=true, timeout=20, tag=飓风相机专业版
+
+[MITM]
+hostname = base.ysjf.com
