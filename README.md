@@ -6,6 +6,7 @@
 
 | 插件 | 说明 | 导入 |
 |------|------|------|
+| **GitHubPro** | GitHub 客户端解锁永久订阅（1.142.1，除 AI 功能外均可用） | [📥](https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPro/GitHubPro.plugin) |
 | **节点检测工具** | 入口落地、地理位置、流媒体解锁、风险评分 4 个独立脚本 | [📥](https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/ipquality/ipquality.lpx) |
 
 > 📥 列点击即可在 Loon 中一键导入插件。
@@ -21,6 +22,9 @@
 my-loon-scripts/
 ├── README.md
 └── loon/
+    ├── GitHubPro/
+    │   ├── GitHubPro.plugin   # GitHub 解锁永久订阅（需 MITM api.github.com）
+    │   └── GithubPro.js       # 响应改写脚本
     └── ipquality/
         ├── README.md
         ├── ipquality.lpx      # 插件定义（4个脚本）
