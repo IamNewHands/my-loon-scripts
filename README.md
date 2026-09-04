@@ -6,6 +6,7 @@
 
 | 插件 | 说明 | 导入 |
 |------|------|------|
+| **Documents文件管理器** | Documents 文件管理器+解锁订阅（v8.5） | [📥](https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/Documents/Documents.plugin) |
 | **GitHubPro** | GitHub 客户端解锁永久订阅（1.142.1，除 AI 功能外均可用） | [📥](https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPro/GitHubPro.plugin) |
 | **节点检测工具** | 入口落地、地理位置、流媒体解锁、风险评分 4 个独立脚本 | [📥](https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/ipquality/ipquality.lpx) |
 
@@ -22,6 +23,10 @@
 my-loon-scripts/
 ├── README.md
 └── loon/
+    ├── Documents/
+    │   ├── Documents.plugin   # Documents 文件管理器+解锁订阅（需 MITM *.pdfexpert.com）
+    │   └── JS/
+    │       └── Documents.js   # 请求改写脚本（jsjiami v7 混淆，小票重放）
     ├── GitHubPro/
     │   ├── GitHubPro.plugin   # GitHub 解锁永久订阅（需 MITM api.github.com）
     │   └── GithubPro.js       # 响应改写脚本
