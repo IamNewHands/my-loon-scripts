@@ -8,14 +8,14 @@
 #!openUrl = https://apps.apple.com/app/id1477376905
 
 [Argument]
-Enable = switch,true,tag=翻译,desc=关闭后只保留原有解锁功能
-Mode = select,"bilingual","pure",tag=翻译,desc=bilingual=原文与译文并列；pure=只显示译文
-TargetLang = select,"zh-CN","zh-TW","en","ja",tag=翻译,desc=译文目标语言
-TranslateReadme = switch,true,tag=翻译范围,desc=仓库首页 README 正文
-TranslateIssue = switch,true,tag=翻译范围,desc=issue/PR 正文与评论
-TranslateRelease = switch,false,tag=翻译范围,desc=Release 说明
-Debug = switch,false,tag=调试,desc=在 Loon 脚本日志中输出执行信息
-ClearCache = switch,false,tag=调试,desc=打开后每次运行先清空翻译缓存（等于临时停用缓存），用完请手动关掉
+Enable = switch,true,tag=[翻译] 总开关,desc=关闭后只保留原有解锁功能
+Mode = select,"bilingual","pure",tag=[翻译] 显示模式,desc=bilingual=原文与译文并列；pure=只显示译文
+TargetLang = select,"zh-CN","zh-TW","en","ja",tag=[翻译] 目标语言,desc=译文使用的语言
+TranslateReadme = switch,true,tag=[范围] 仓库首页,desc=翻译 README 正文与仓库简介
+TranslateIssue = switch,true,tag=[范围] issue/PR,desc=翻译详情正文、评论与标题
+TranslateRelease = switch,false,tag=[范围] Release,desc=翻译 Release 说明
+Debug = switch,false,tag=[调试] 脚本日志,desc=在 Loon「脚本任务」里输出 [GitHubPro] 执行信息
+ClearCache = switch,false,tag=[缓存] 清空缓存,desc=打开后每次运行先清空翻译缓存（等于临时停用缓存），用完请手动关掉
 
 [Script]
 # > GitHub 解锁（原作者 baby）
