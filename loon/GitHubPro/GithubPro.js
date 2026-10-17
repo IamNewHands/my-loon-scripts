@@ -15,10 +15,10 @@
   'use strict';
 
   /* ============================ 参数 ============================ */
-  var ARG_KEYS = ['Enable', 'Mode', 'TargetLang', 'TranslateReadme', 'TranslateIssue', 'TranslateRelease', 'Debug', 'ClearCache'];
+  var ARG_KEYS = ['Enable', 'Mode', 'TargetLang', 'TranslateReadme', 'TranslateIssue', 'TranslateRelease', 'Debug', 'ClearCache', 'TitleFormat'];
   var DEFAULTS = {
     Enable: true, Mode: 'bilingual', TargetLang: 'zh-CN',
-    TranslateReadme: true, TranslateIssue: true, TranslateRelease: false, Debug: false, ClearCache: false
+    TranslateReadme: true, TranslateIssue: true, TranslateRelease: false, Debug: false, ClearCache: false, TitleFormat: 'html'
   };
 
   function argRaw(name) {
@@ -46,7 +46,8 @@
     issue: toBool(argRaw('TranslateIssue'), DEFAULTS.TranslateIssue),
     release: toBool(argRaw('TranslateRelease'), DEFAULTS.TranslateRelease),
     debug: toBool(argRaw('Debug'), DEFAULTS.Debug),
-    clearCache: toBool(argRaw('ClearCache'), DEFAULTS.ClearCache)
+    clearCache: toBool(argRaw('ClearCache'), DEFAULTS.ClearCache),
+    titleFormat: String(argRaw('TitleFormat') === undefined ? DEFAULTS.TitleFormat : argRaw('TitleFormat')).toLowerCase() === 'text' ? 'text' : 'html'
   };
 
   function log() {
@@ -88,6 +89,12 @@
   var STYLE_BODY = 'display:block;border-left:3px solid #d0d7de;padding-left:8px;margin:6px 0 0;color:#57606a;font-size:1em;font-weight:400;line-height:1.65';
   var STYLE_HEAD = 'display:block;border-left:3px solid #d0d7de;padding-left:8px;margin:6px 0 0;color:#57606a;font-size:15px;font-weight:400;line-height:1.65';
   function blockStyle(tag) { return /^h[1-6]$/.test(tag || '') ? STYLE_HEAD : STYLE_BODY; }
+  // 标题/简介这类纯文本字段的双语拼接（无法插入块级元素）
+  var TITLE_INLINE_STYLE = 'font-size:0.85em;font-weight:400;color:#57606a';
+  function joinTitle(src, dst) {
+    if (CFG.titleFormat === 'text') return src + '\n译：' + dst;   // 兜底：换行 + 标记，任何渲染器都能看出哪句是译文
+    return src + '<br><span style="' + TITLE_INLINE_STYLE + '">' + dst + '</span>';
+  }
 
   /* ============================ 工具 ============================ */
   function hash(s) {
@@ -403,7 +410,7 @@
         if (fld.kind === 'text') {
           var dst = out[index[fld.units[0].text]] || '';
           if (!dst) continue;
-          fld.parent[fld.key] = (CFG.mode === 'pure') ? dst : (fld.src + '\n' + dst);
+          fld.parent[fld.key] = (CFG.mode === 'pure') ? dst : joinTitle(fld.src, dst);
           if (fld.cacheKey) cachePut(fld.cacheKey, fld.parent[fld.key]);
           continue;
         }

@@ -30,10 +30,15 @@ https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPr
 | TranslateIssue | true | issue/PR 详情正文与评论、issue/PR 列表与详情**标题** |
 | TranslateRelease | false | Release 说明 |
 | Debug | false | 在 Loon 脚本日志输出执行信息 |
+| ClearCache | false | 打开后每次运行先清空缓存（临时停用缓存），用完手动关掉 |
+| TitleFormat | html | `html`＝标题译文另起一行且字号 0.85em；`text`＝换行 + 「译：」前缀 |
 
 译文以带左侧灰条的块跟在原文段落/标题/列表项/表格单元格之后（`pure` 模式直接替换原文）。正文块的字号跟随原文（`1em`），标题块的译文固定 15px（避免继承标题的巨大字号）。
 
-`title` / `issueHtmlTitle` / `pullRequestHtmlTitle` / `description` 这类纯文本字段无法插 HTML，双语模式下用换行拼接（原文一行、译文一行）；觉得占地方可切 `pure`。
+`title` / `issueHtmlTitle` / `pullRequestHtmlTitle` / `description` 这类字段的双语拼接由 `TitleFormat` 控制：
+
+- `html`（默认）：`原文<br><span style="font-size:0.85em;font-weight:400;color:#57606a">译文</span>` —— 译文另起一行、字号更小、灰色，与原标题区分开。
+- `text`：`原文\n译：译文` —— 加「译：」前缀，任何渲染器下都能看出哪句是译文；**如果你在 App 里看到尖括号标签原样显示，说明该字段不是按 HTML 渲染，切到 text**。
 
 ## 翻译范围（按 GraphQL 字段）
 
