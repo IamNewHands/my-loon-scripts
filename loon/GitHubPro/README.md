@@ -31,7 +31,7 @@ https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPr
 | TranslateRelease | false | Release 说明 |
 | Debug | false | 在 Loon 脚本日志输出执行信息 |
 | ClearCache | false | 打开后每次运行先清空缓存（临时停用缓存），用完手动关掉 |
-| TitleFormat | html | `html`＝标题译文另起一行且字号 0.85em；`text`＝换行 + 「译：」前缀 |
+| TitleFormat | line | `line`＝硬换行 + 「译：」前缀（默认）；`html`＝译文另起一行且字号 0.85em（若标题里出现尖括号标签就切回 line） |
 
 译文以带左侧灰条的块跟在原文段落/标题/列表项/表格单元格之后（`pure` 模式直接替换原文）。正文块的字号跟随原文（`1em`），标题块的译文固定 15px（避免继承标题的巨大字号）。
 
@@ -75,6 +75,7 @@ https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPr
 | 存储位置 | Loon 脚本持久化存储（`$persistentStore`，落盘在 Loon App 容器内） |
 | 退出 App / 重启手机 | **不丢** |
 | 过期时间 | **无 TTL**。key 里含源文内容哈希，内容一变 key 就变，不会读到过期译文 |
+| 译文格式变更 | `CACHE_VERSION` 递增即整体作废旧缓存（避免改了排版却仍吐旧格式） |
 | 容量 | **300 条 / 2 MB**，超出后从最旧（最少使用）开始淘汰 |
 | 命中效果 | 实测 3–40 ms，且不再发翻译请求 |
 | 清空方式 | 打开 `ClearCache` 开关跑一次（等于临时停用缓存），用完手动关掉 |

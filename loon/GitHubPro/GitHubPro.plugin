@@ -16,7 +16,7 @@ TranslateIssue = switch,true,tag=[范围] issue/PR,desc=翻译详情正文、评
 TranslateRelease = switch,false,tag=[范围] Release,desc=翻译 Release 说明
 Debug = switch,false,tag=[调试] 脚本日志,desc=在 Loon「脚本任务」里输出 [GitHubPro] 执行信息
 ClearCache = switch,false,tag=[缓存] 清空缓存,desc=打开后每次运行先清空翻译缓存（等于临时停用缓存），用完请手动关掉
-TitleFormat = select,"html","line",tag=[标题] 双语格式,desc=html=译文另起一行且字号更小；line=硬换行并加「译：」前缀（标题仍挤在一起时试这个）
+TitleFormat = select,"line","html",tag=[标题] 双语格式,desc=line=硬换行+「译：」前缀（默认，任何情况都能分出译文）；html=译文另起一行且字号更小（若标题里出现尖括号标签就切回 line）
 
 [Script]
 # > GitHub 解锁（原作者 baby）

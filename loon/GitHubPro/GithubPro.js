@@ -18,7 +18,7 @@
   var ARG_KEYS = ['Enable', 'Mode', 'TargetLang', 'TranslateReadme', 'TranslateIssue', 'TranslateRelease', 'Debug', 'ClearCache', 'TitleFormat'];
   var DEFAULTS = {
     Enable: true, Mode: 'bilingual', TargetLang: 'zh-CN',
-    TranslateReadme: true, TranslateIssue: true, TranslateRelease: false, Debug: false, ClearCache: false, TitleFormat: 'html'
+    TranslateReadme: true, TranslateIssue: true, TranslateRelease: false, Debug: false, ClearCache: false, TitleFormat: 'line'
   };
 
   function argRaw(name) {
@@ -83,6 +83,7 @@
   var HTTP_TIMEOUT_MS = 8000; // Loon 的 $httpClient timeout 单位是毫秒
   var MAX_Q = 4000;       // 单次翻译请求的源文长度上限
   var DEADLINE_MS = 9000; // 超时降级：到点直接返回原文
+  var CACHE_VERSION = 'v2';  // 译文格式变化时递增：旧缓存会整体作废，避免继续吐旧格式
   var CACHE_MAX = 300;                    // 缓存条目上限（按字段计：README=1 条、标题=1 条/条）
   var CACHE_BYTES_MAX = 2 * 1024 * 1024;  // 缓存总字节上限 2MB
   // 译文样式：正文块跟随原文大小（1em），标题块固定 15px 避免继承标题的巨大字号
@@ -113,7 +114,7 @@
   function storeRead(k) { try { return $persistentStore.read(k) || null; } catch (e) { return null; } }
   function storeWrite(k, v) { try { $persistentStore.write(v, k); return true; } catch (e) { return false; } }
   function storeDel(k) { try { $persistentStore.write(undefined, k); } catch (e) {} }
-  function cacheKey(area, body) { return 'ghpro_' + CFG.mode + '_' + CFG.lang + '_' + area + '_' + hash(body); }
+  function cacheKey(area, body) { return 'ghpro_' + CACHE_VERSION + '_' + CFG.mode + '_' + CFG.lang + '_' + area + '_' + hash(body); }
 
   // 粗估字节数：非 ASCII 字符按 3 字节计（用于字节上限）
   function roughBytes(s) {
@@ -155,6 +156,14 @@
       keep.push(e); count++; bytes += e.b;
     }
     writeIndex(keep);
+  }
+  function checkCacheVersion() {
+    var v = storeRead('ghpro_ver');
+    if (v === CACHE_VERSION) return 0;
+    var n = cacheClear();
+    storeWrite('ghpro_ver', CACHE_VERSION);
+    warn('缓存格式升级 ' + (v || 'v1') + ' → ' + CACHE_VERSION + '，已作废 ' + n + ' 条旧译文');
+    return n;
   }
   function cacheClear() {
     var idx = readIndex();
@@ -350,6 +359,7 @@
 
     if (!CFG.enable) return finish(unlockBody);
     if (CFG.clearCache) warn('ClearCache 已开启，清空缓存 ' + cacheClear() + ' 条（请用完后手动关掉）');
+    checkCacheVersion();
     if (!$httpClient || (!$request)) return finish(unlockBody);
 
     // --- 收集待翻译字段 ---
