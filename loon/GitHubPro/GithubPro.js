@@ -1,7 +1,10 @@
 /*
  * GitHubPro.js — Loon http-response script for https://api.github.com/graphql
  *
- * 1) 保留原有解锁逻辑（原作者 baby, https://github.com/Yu9191）
+ * 作者：IamNewHands (https://github.com/IamNewHands) — 翻译、缓存与整体维护
+ *       原作解锁逻辑：baby (https://github.com/Yu9191)
+ *
+ * 1) 保留原有解锁逻辑
  * 2) 新增翻译：README 正文 / issue・PR 正文与评论 / Release 说明
  *    模式：bilingual = 原文 + 译文；pure = 只显示译文
  *
@@ -12,10 +15,10 @@
   'use strict';
 
   /* ============================ 参数 ============================ */
-  var ARG_KEYS = ['Enable', 'Mode', 'TargetLang', 'TranslateReadme', 'TranslateIssue', 'TranslateRelease', 'Debug'];
+  var ARG_KEYS = ['Enable', 'Mode', 'TargetLang', 'TranslateReadme', 'TranslateIssue', 'TranslateRelease', 'Debug', 'ClearCache'];
   var DEFAULTS = {
     Enable: true, Mode: 'bilingual', TargetLang: 'zh-CN',
-    TranslateReadme: true, TranslateIssue: true, TranslateRelease: false, Debug: false
+    TranslateReadme: true, TranslateIssue: true, TranslateRelease: false, Debug: false, ClearCache: false
   };
 
   function argRaw(name) {
@@ -42,7 +45,8 @@
     readme: toBool(argRaw('TranslateReadme'), DEFAULTS.TranslateReadme),
     issue: toBool(argRaw('TranslateIssue'), DEFAULTS.TranslateIssue),
     release: toBool(argRaw('TranslateRelease'), DEFAULTS.TranslateRelease),
-    debug: toBool(argRaw('Debug'), DEFAULTS.Debug)
+    debug: toBool(argRaw('Debug'), DEFAULTS.Debug),
+    clearCache: toBool(argRaw('ClearCache'), DEFAULTS.ClearCache)
   };
 
   function log() {
@@ -78,7 +82,8 @@
   var HTTP_TIMEOUT_MS = 8000; // Loon 的 $httpClient timeout 单位是毫秒
   var MAX_Q = 4000;       // 单次翻译请求的源文长度上限
   var DEADLINE_MS = 9000; // 超时降级：到点直接返回原文
-  var CACHE_MAX = 24;     // 缓存条目上限
+  var CACHE_MAX = 300;                    // 缓存条目上限（按字段计：README=1 条、标题=1 条/条）
+  var CACHE_BYTES_MAX = 2 * 1024 * 1024;  // 缓存总字节上限 2MB
   // 译文样式：正文块跟随原文大小（1em），标题块固定 15px 避免继承标题的巨大字号
   var STYLE_BODY = 'display:block;border-left:3px solid #d0d7de;padding-left:8px;margin:6px 0 0;color:#57606a;font-size:1em;font-weight:400;line-height:1.65';
   var STYLE_HEAD = 'display:block;border-left:3px solid #d0d7de;padding-left:8px;margin:6px 0 0;color:#57606a;font-size:15px;font-weight:400;line-height:1.65';
@@ -100,14 +105,54 @@
   function storeRead(k) { try { return $persistentStore.read(k) || null; } catch (e) { return null; } }
   function storeWrite(k, v) { try { $persistentStore.write(v, k); return true; } catch (e) { return false; } }
   function storeDel(k) { try { $persistentStore.write(undefined, k); } catch (e) {} }
-  function cacheKey(area, html) { return 'ghpro_' + CFG.mode + '_' + CFG.lang + '_' + area + '_' + hash(html); }
-  function cacheTouch(k) {
-    var idx = [];
+  function cacheKey(area, body) { return 'ghpro_' + CFG.mode + '_' + CFG.lang + '_' + area + '_' + hash(body); }
+
+  // 粗估字节数：非 ASCII 字符按 3 字节计（用于字节上限）
+  function roughBytes(s) {
+    var nonAscii = s.match(/[^\x00-\x7f]/g);
+    return s.length + (nonAscii ? nonAscii.length * 2 : 0);
+  }
+  function readIndex() {
+    var idx;
     try { idx = JSON.parse(storeRead('ghpro_index') || '[]') || []; } catch (e) { idx = []; }
-    var out = [k];
-    for (var i = 0; i < idx.length && out.length < CACHE_MAX; i++) if (idx[i] !== k) out.push(idx[i]);
-    for (var j = CACHE_MAX; j < idx.length; j++) storeDel(idx[j]);
-    storeWrite('ghpro_index', JSON.stringify(out));
+    var out = [];
+    for (var i = 0; i < idx.length; i++) {
+      var e = idx[i];
+      if (typeof e === 'string') out.push({ k: e, b: 0 });          // 兼容旧版索引
+      else if (e && e.k) out.push({ k: e.k, b: e.b || 0 });
+    }
+    return out;
+  }
+  function writeIndex(idx) { storeWrite('ghpro_index', JSON.stringify(idx)); }
+
+  function cacheGet(k) {
+    var v = storeRead(k);
+    if (!v) return null;
+    var idx = readIndex();                                          // 命中即提到队首 → 真 LRU
+    if (!idx.length || idx[0].k !== k) {
+      var out = [{ k: k, b: roughBytes(v) }];
+      for (var i = 0; i < idx.length && out.length < CACHE_MAX; i++) if (idx[i].k !== k) out.push(idx[i]);
+      writeIndex(out);
+    }
+    return v;
+  }
+  function cachePut(k, v) {
+    if (!storeWrite(k, v)) return;
+    var idx = readIndex(), keep = [], count = 0, bytes = 0;
+    var head = [{ k: k, b: roughBytes(v) }];
+    for (var i = 0; i < idx.length; i++) if (idx[i].k !== k) head.push(idx[i]);
+    for (var j = 0; j < head.length; j++) {
+      var e = head[j];
+      if (count >= CACHE_MAX || bytes + e.b > CACHE_BYTES_MAX) { storeDel(e.k); continue; }  // 淘汰队尾
+      keep.push(e); count++; bytes += e.b;
+    }
+    writeIndex(keep);
+  }
+  function cacheClear() {
+    var idx = readIndex();
+    for (var i = 0; i < idx.length; i++) storeDel(idx[i].k);
+    writeIndex([]);
+    return idx.length;
   }
 
   /* ==================== HTML 分块（双语插入点） ==================== */
@@ -296,6 +341,7 @@
     var unlockBody = unlocked ? JSON.stringify(obj) : null;
 
     if (!CFG.enable) return finish(unlockBody);
+    if (CFG.clearCache) warn('ClearCache 已开启，清空缓存 ' + cacheClear() + ' 条（请用完后手动关掉）');
     if (!$httpClient || (!$request)) return finish(unlockBody);
 
     // --- 收集待翻译字段 ---
@@ -311,7 +357,7 @@
     // --- 缓存命中 + 切块 ---
     var todo = [];
     for (var i = 0; i < fields.length; i++) {
-      var f = fields[i], ck = cacheKey(f.area, f.kind + '|' + f.src), hit = storeRead(ck);
+      var f = fields[i], ck = cacheKey(f.area, f.kind + '|' + f.src), hit = cacheGet(ck);
       if (hit) { f.parent[f.key] = hit; log('cache hit', f.area, f.key); continue; }
       f.units = [];
       if (f.kind === 'html') {
@@ -358,7 +404,7 @@
           var dst = out[index[fld.units[0].text]] || '';
           if (!dst) continue;
           fld.parent[fld.key] = (CFG.mode === 'pure') ? dst : (fld.src + '\n' + dst);
-          if (fld.cacheKey) { storeWrite(fld.cacheKey, fld.parent[fld.key]); cacheTouch(fld.cacheKey); }
+          if (fld.cacheKey) cachePut(fld.cacheKey, fld.parent[fld.key]);
           continue;
         }
         var html = fld.src, units = fld.units.slice();
@@ -373,7 +419,7 @@
           }
         }
         fld.parent[fld.key] = html;
-        if (fld.cacheKey) { storeWrite(fld.cacheKey, html); cacheTouch(fld.cacheKey); }
+        if (fld.cacheKey) cachePut(fld.cacheKey, html);
       }
       finish(JSON.stringify(obj));
     });

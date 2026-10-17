@@ -1,9 +1,15 @@
 # GitHubPro（Loon 插件）
 
-GitHub iOS 客户端（App Store id 1477376905）增强：**解锁订阅** + **README / issue・PR / Release 正文翻译**。
+GitHub iOS 客户端（App Store id 1477376905）增强：**解锁订阅** + **README / issue・PR / Release 的标题与正文翻译**。
 
-- 解锁部分原作者 [baby](https://github.com/Yu9191)，逻辑为改写 `api.github.com/graphql` 响应中 `viewer` 的订阅字段。
-- 翻译部分：拦截同一个 GraphQL 响应，把 HTML 正文送 Google 免费端点（gtx）翻译后回填，**无需任何密钥**。代码块 `<pre>/<code>`、SVG 图标、链接地址不会被翻译。
+## 作者
+
+| 角色 | 作者 |
+|---|---|
+| 翻译功能、缓存与整体维护 | **[IamNewHands](https://github.com/IamNewHands)** |
+| 原作解锁脚本（`viewer` 订阅字段改写） | [baby](https://github.com/Yu9191) |
+
+- 翻译实现：拦截 `api.github.com/graphql` 响应，把 HTML/纯文本字段送 Google 免费端点（gtx）翻译后回填，**无需任何密钥**。代码块 `<pre>/<code>`、SVG 图标、链接地址不会被翻译。
 
 ## 安装
 
@@ -57,6 +63,19 @@ https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPr
 - 内容已是目标语言（中文占字母比例 > 35%）时自动跳过。
 - 缓存上限 24 条，超出按最近使用淘汰。
 
+## 缓存
+
+| 项 | 值 |
+|---|---|
+| 存储位置 | Loon 脚本持久化存储（`$persistentStore`，落盘在 Loon App 容器内） |
+| 退出 App / 重启手机 | **不丢** |
+| 过期时间 | **无 TTL**。key 里含源文内容哈希，内容一变 key 就变，不会读到过期译文 |
+| 容量 | **300 条 / 2 MB**，超出后从最旧（最少使用）开始淘汰 |
+| 命中效果 | 实测 3–40 ms，且不再发翻译请求 |
+| 清空方式 | 打开 `ClearCache` 开关跑一次（等于临时停用缓存），用完手动关掉 |
+
+缓存按**字段**计：README 正文 1 条、仓库简介 1 条、每个 issue/PR 标题 1 条（同一页面里的重复标题会去重）。
+
 ## 本地开发
 
 `test/run_fixtures.js` 用 node 模拟 Loon 运行时跑抓包样本，`test/inspect.js` 单文件排查：
@@ -64,6 +83,8 @@ https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPr
 ```bash
 node test/run_fixtures.js bilingual   # 生成 preview/preview-bilingual.html
 node test/run_fixtures.js pure
+node test/inspect.js <fixture名> bilingual   # 单样本排查
+node test/cache_test.js                      # 缓存淘汰/LRU/清空开关
 ```
 
 `fixtures/` 是 Loon 抓包导出的 GraphQL 响应样本（已剔除含账号信息的条目）。

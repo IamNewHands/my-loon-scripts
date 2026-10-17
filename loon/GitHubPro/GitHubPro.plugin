@@ -1,8 +1,8 @@
 #!name = GitHubPro
 #!desc = GitHub 客户端增强：解锁订阅 + README/issue/Release 的标题与正文翻译（双语或纯译文）。译文跟随原文大小。解锁部分原作者 baby；翻译走 Google 免费端点，无需密钥。
-#!date = 2026-10-17 21:30
+#!date = 2026-10-17 22:10
 #!category = GitHubPro
-#!author = baby[https://github.com/Yu9191] / IamNewHands
+#!author = IamNewHands[https://github.com/IamNewHands] ｜ 解锁部分原作者 baby[https://github.com/Yu9191]
 #!homepage = https://github.com/IamNewHands/my-loon-scripts/tree/main/loon/GitHubPro
 #!icon = https://raw.githubusercontent.com/BOBOLAOSHIV587/Rules/main/Icons/AppIcons/Image/App/GitHub.png
 #!openUrl = https://apps.apple.com/app/id1477376905
@@ -15,11 +15,12 @@ TranslateReadme = switch,true,tag=翻译范围,desc=仓库首页 README 正文
 TranslateIssue = switch,true,tag=翻译范围,desc=issue/PR 正文与评论
 TranslateRelease = switch,false,tag=翻译范围,desc=Release 说明
 Debug = switch,false,tag=调试,desc=在 Loon 脚本日志中输出执行信息
+ClearCache = switch,false,tag=调试,desc=打开后每次运行先清空翻译缓存（等于临时停用缓存），用完请手动关掉
 
 [Script]
 # > GitHub 解锁（原作者 baby）
 # > README / issue / Release 翻译
-http-response ^https:\/\/api\.github\.com\/graphql script-path=https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPro/GithubPro.js, requires-body=true, timeout=60, argument=[{Enable},{Mode},{TargetLang},{TranslateReadme},{TranslateIssue},{TranslateRelease},{Debug}], tag=GithubPro
+http-response ^https:\/\/api\.github\.com\/graphql script-path=https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPro/GithubPro.js, requires-body=true, timeout=60, argument=[{Enable},{Mode},{TargetLang},{TranslateReadme},{TranslateIssue},{TranslateRelease},{Debug},{ClearCache}], tag=GithubPro
 
 [MITM]
 hostname = api.github.com
