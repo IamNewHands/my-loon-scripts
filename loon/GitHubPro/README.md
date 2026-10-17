@@ -20,18 +20,33 @@ https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPr
 | Enable | true | 关掉后只保留原有解锁功能 |
 | Mode | bilingual | `bilingual` 原文+译文并列；`pure` 只显示译文 |
 | TargetLang | zh-CN | 译文目标语言（zh-CN / zh-TW / en / ja） |
-| TranslateReadme | true | 仓库首页 README |
-| TranslateIssue | true | issue/PR 正文与评论、Release 说明（见下） |
+| TranslateReadme | true | 仓库首页 README 正文 + 仓库简介 |
+| TranslateIssue | true | issue/PR 详情正文与评论、issue/PR 列表与详情**标题** |
 | TranslateRelease | false | Release 说明 |
 | Debug | false | 在 Loon 脚本日志输出执行信息 |
 
-译文以带左侧灰条的块跟在原文段落/标题/列表项/表格单元格之后（`pure` 模式直接替换原文）。
+译文以带左侧灰条的块跟在原文段落/标题/列表项/表格单元格之后（`pure` 模式直接替换原文）。正文块的字号跟随原文（`1em`），标题块的译文固定 15px（避免继承标题的巨大字号）。
+
+`title` / `issueHtmlTitle` / `pullRequestHtmlTitle` / `description` 这类纯文本字段无法插 HTML，双语模式下用换行拼接（原文一行、译文一行）；觉得占地方可切 `pure`。
+
+## 翻译范围（按 GraphQL 字段）
+
+| 界面 | 字段 |
+|---|---|
+| 仓库首页 | `repository.readme.contentHTML`、`repository.description` / `descriptionHTML` |
+| issue / PR 详情 | `issueOrPullRequest.bodyHTML`、`timelineItems.nodes[].bodyHTML`、`title`/`issueHtmlTitle` |
+| issue / PR 列表 | `search.nodes[].title` / `issueHtmlTitle` / `pullRequestHtmlTitle` |
+| Release | `release.descriptionHTML`、`latestRelease.descriptionHTML` |
+
+`name` / `url` 等标识性字段一律不翻（仓库名、用户名、分支名不动）。
+
 
 ## 实测数据（本机样本）
 
 | 场景 | 耗时 | 结果 |
 |---|---|---|
-| README（21.9 KB HTML，88 段） | 1.2–2.1 s | 双语正常，代码块/表格/SVG 未受影响 |
+| README（21.9 KB HTML，88 段） | 1.1–2.1 s | 双语正常，代码块/表格/SVG 未受影响 |
+| issue/PR 列表（20 条标题，去重后 20 段） | 0.24–0.3 s | 标题双语/纯译文均正常 |
 | Release 说明（1.8 KB） | 0.2–1.0 s | 正常 |
 | 二次打开同一页面 | 6–32 ms | `$persistentStore` 命中缓存，不再发请求 |
 

@@ -1,6 +1,6 @@
 #!name = GitHubPro
-#!desc = GitHub 客户端增强：解锁订阅 + README/issue/Release 正文翻译（双语或纯译文）。解锁部分原作者 baby；翻译走 Google 免费端点，无需密钥。
-#!date = 2026-10-17
+#!desc = GitHub 客户端增强：解锁订阅 + README/issue/Release 的标题与正文翻译（双语或纯译文）。译文跟随原文大小。解锁部分原作者 baby；翻译走 Google 免费端点，无需密钥。
+#!date = 2026-10-17 21:30
 #!category = GitHubPro
 #!author = baby[https://github.com/Yu9191] / IamNewHands
 #!homepage = https://github.com/IamNewHands/my-loon-scripts/tree/main/loon/GitHubPro

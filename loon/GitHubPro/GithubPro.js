@@ -58,17 +58,31 @@
   }
 
   /* ============================ 常量 ============================ */
-  var FIELD_AREA = { contentHTML: 'readme', bodyHTML: 'issue', descriptionHTML: 'release' };
+  var HTML_KEYS = { contentHTML: 1, bodyHTML: 1, descriptionHTML: 1 };
+  // 字段归类：name/url 等标识性字段一律不碰
+  function classify(key, path) {
+    if (key === 'contentHTML') return 'readme';
+    if (key === 'bodyHTML') return 'issue';
+    if (key === 'descriptionHTML' || key === 'description') {
+      return /release/i.test(path) ? 'release' : 'readme';   // 仓库简介 vs Release 说明
+    }
+    if (key === 'title' || key === 'issueHtmlTitle' || key === 'pullRequestHtmlTitle') return 'issue';
+    return null;
+  }
   var BLOCK_TAG = { p: 1, li: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, td: 1, th: 1, blockquote: 1, summary: 1, dt: 1, dd: 1 };
   var VOID_TAG = /^(br|hr|img|input|meta|link|source|wbr|area|base|col|embed|param|track)$/;
   var OPAQUE_TAG = /^(pre|code|svg|script|style|textarea|math)$/;
   var UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
   var MIN_TEXT = 12;      // 可见文字少于该长度的块不翻（纯链接/图片/提交号等噪声）
+  var TEXT_MIN = 4;       // 纯文本字段（标题/说明）最短长度
   var HTTP_TIMEOUT_MS = 8000; // Loon 的 $httpClient timeout 单位是毫秒
   var MAX_Q = 4000;       // 单次翻译请求的源文长度上限
   var DEADLINE_MS = 9000; // 超时降级：到点直接返回原文
   var CACHE_MAX = 24;     // 缓存条目上限
-  var SPAN_STYLE = 'display:block;border-left:3px solid #d0d7de;padding-left:8px;margin:6px 0 0;color:#57606a;font-size:14px;font-weight:400;line-height:1.6';
+  // 译文样式：正文块跟随原文大小（1em），标题块固定 15px 避免继承标题的巨大字号
+  var STYLE_BODY = 'display:block;border-left:3px solid #d0d7de;padding-left:8px;margin:6px 0 0;color:#57606a;font-size:1em;font-weight:400;line-height:1.65';
+  var STYLE_HEAD = 'display:block;border-left:3px solid #d0d7de;padding-left:8px;margin:6px 0 0;color:#57606a;font-size:15px;font-weight:400;line-height:1.65';
+  function blockStyle(tag) { return /^h[1-6]$/.test(tag || '') ? STYLE_HEAD : STYLE_BODY; }
 
   /* ============================ 工具 ============================ */
   function hash(s) {
@@ -226,19 +240,32 @@
     if (isZhTarget() && cjkRatio(v) > 0.35) return false; // 本来就是中文，跳过
     return true;
   }
-  function collect(node, out, depth) {
+  function acceptableText(v) {
+    if (!v || v.length < TEXT_MIN) return false;
+    if (!/[A-Za-z]/.test(v)) return false;
+    if (isZhTarget() && cjkRatio(v) > 0.35) return false;
+    return true;
+  }
+  function collect(node, out, depth, path) {
     if (!node || depth > 14) return;
     if (Object.prototype.toString.call(node) === '[object Array]') {
-      for (var i = 0; i < node.length; i++) collect(node[i], out, depth);
+      for (var i = 0; i < node.length; i++) collect(node[i], out, depth, path);
       return;
     }
     if (typeof node !== 'object') return;
     for (var k in node) {
       if (!Object.prototype.hasOwnProperty.call(node, k)) continue;
-      var v = node[k], area = FIELD_AREA[k];
+      var v = node[k];
       if (typeof v === 'string') {
-        if (area && areaEnabled(area) && acceptable(v)) out.push({ parent: node, key: k, area: area, html: v });
-      } else if (v && typeof v === 'object') collect(v, out, depth + 1);
+        var area = classify(k, path);
+        if (!area || !areaEnabled(area)) continue;
+        var isHtml = !!HTML_KEYS[k];
+        if (isHtml ? acceptable(v) : acceptableText(v)) {
+          out.push({ parent: node, key: k, area: area, kind: isHtml ? 'html' : 'text', src: v });
+        }
+      } else if (v && typeof v === 'object') {
+        collect(v, out, depth + 1, path + '.' + k);
+      }
     }
   }
 
@@ -273,51 +300,76 @@
 
     // --- 收集待翻译字段 ---
     var fields = [];
-    collect(obj, fields, 0);
+    collect(obj, fields, 0, '$');
     if (!fields.length) return finish(unlockBody);
+    if (CFG.debug) {
+      var names = [];
+      for (var q0 = 0; q0 < fields.length; q0++) names.push(fields[q0].key + '(' + fields[q0].kind + ',' + fields[q0].src.length + ')');
+      log('collected: ' + names.join(' '));
+    }
 
-    // --- 缓存命中 ---
+    // --- 缓存命中 + 切块 ---
     var todo = [];
     for (var i = 0; i < fields.length; i++) {
-      var f = fields[i], ck = cacheKey(f.area, f.html), hit = storeRead(ck);
+      var f = fields[i], ck = cacheKey(f.area, f.kind + '|' + f.src), hit = storeRead(ck);
       if (hit) { f.parent[f.key] = hit; log('cache hit', f.area, f.key); continue; }
-      f.blocks = selectBlocks(f.html);
-      if (f.blocks.length) { f.cacheKey = ck; todo.push(f); }
+      f.units = [];
+      if (f.kind === 'html') {
+        var blocks = selectBlocks(f.src);
+        for (var b = 0; b < blocks.length; b++) {
+          f.units.push({
+            start: blocks[b].innerStart, end: blocks[b].innerEnd, tag: blocks[b].tag,
+            text: f.src.slice(blocks[b].innerStart, blocks[b].innerEnd).replace(/\r/g, ' ')
+          });
+        }
+        // 兜底：整段就是一个不带块级标签的容器（如仓库简介 "<div>…</div>"）
+        if (!f.units.length && plainText(f.src).length >= 8) {
+          f.units.push({ start: 0, end: f.src.length, tag: '', text: plainText(f.src).replace(/\r/g, ' ') });
+        }
+      } else {
+        f.units.push({ text: f.src.replace(/\r/g, ' ') });
+      }
+      if (f.units.length) { f.cacheKey = ck; todo.push(f); }
     }
     if (!todo.length) {
       var cachedBody = JSON.stringify(obj);
       return finish(cachedBody === $response.body ? unlockBody : cachedBody);
     }
 
-    // --- 汇总所有片段，批量翻译 ---
-    var segs = [];
+    // --- 汇总片段并去重（相同文本只翻一次，标题类字段重复率高）---
+    var uniq = [], index = {};
     for (var t = 0; t < todo.length; t++) {
-      for (var b = 0; b < todo[t].blocks.length; b++) {
-        var inner = todo[t].html.slice(todo[t].blocks[b].innerStart, todo[t].blocks[b].innerEnd).replace(/\r/g, ' ');
-        segs.push(inner);
+      for (var u = 0; u < todo[t].units.length; u++) {
+        var txt = todo[t].units[u].text;
+        if (!Object.prototype.hasOwnProperty.call(index, txt)) { index[txt] = uniq.length; uniq.push(txt); }
       }
     }
-    log('fields=' + todo.length, 'segments=' + segs.length, 'mode=' + CFG.mode, 'lang=' + CFG.lang);
+    log('fields=' + todo.length, 'segments=' + uniq.length, 'mode=' + CFG.mode, 'lang=' + CFG.lang);
 
     var guard = setTimeout(function () { warn('翻译超时，本次返回原文'); finish(unlockBody); }, DEADLINE_MS);
 
-    translateAll(segs, function (err, out) {
+    translateAll(uniq, function (err, out) {
       clearTimeout(guard);
       if (err || !out) return finish(unlockBody);
 
-      var p = 0;
       for (var a = 0; a < todo.length; a++) {
-        var fld = todo[a], html = fld.html;
-        var pairs = [];
-        for (var q = 0; q < fld.blocks.length; q++) { pairs.push({ blk: fld.blocks[q], tr: out[p++] }); }
-        pairs.sort(function (x, y) { return y.blk.innerEnd - x.blk.innerEnd; }); // 从后往前替换，偏移不失效
-        for (var r = 0; r < pairs.length; r++) {
-          var blk = pairs[r].blk, tr = pairs[r].tr;
+        var fld = todo[a];
+        if (fld.kind === 'text') {
+          var dst = out[index[fld.units[0].text]] || '';
+          if (!dst) continue;
+          fld.parent[fld.key] = (CFG.mode === 'pure') ? dst : (fld.src + '\n' + dst);
+          if (fld.cacheKey) { storeWrite(fld.cacheKey, fld.parent[fld.key]); cacheTouch(fld.cacheKey); }
+          continue;
+        }
+        var html = fld.src, units = fld.units.slice();
+        units.sort(function (x, y) { return y.end - x.end; }); // 从后往前替换，偏移不失效
+        for (var r = 0; r < units.length; r++) {
+          var un = units[r], tr = out[index[un.text]];
           if (!tr || !tr.length) continue;
           if (CFG.mode === 'pure') {
-            html = html.slice(0, blk.innerStart) + tr + html.slice(blk.innerEnd);
+            html = html.slice(0, un.start) + tr + html.slice(un.end);
           } else {
-            html = html.slice(0, blk.innerEnd) + '<span style="' + SPAN_STYLE + '">' + tr + '</span>' + html.slice(blk.innerEnd);
+            html = html.slice(0, un.end) + '<span style="' + blockStyle(un.tag) + '">' + tr + '</span>' + html.slice(un.end);
           }
         }
         fld.parent[fld.key] = html;
