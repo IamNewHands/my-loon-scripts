@@ -47,7 +47,7 @@
     release: toBool(argRaw('TranslateRelease'), DEFAULTS.TranslateRelease),
     debug: toBool(argRaw('Debug'), DEFAULTS.Debug),
     clearCache: toBool(argRaw('ClearCache'), DEFAULTS.ClearCache),
-    titleFormat: String(argRaw('TitleFormat') === undefined ? DEFAULTS.TitleFormat : argRaw('TitleFormat')).toLowerCase() === 'text' ? 'text' : 'html'
+    titleFormat: String(argRaw('TitleFormat') === undefined ? DEFAULTS.TitleFormat : argRaw('TitleFormat')).toLowerCase() === 'html' ? 'html' : 'line'
   };
 
   function log() {
@@ -92,8 +92,9 @@
   // 标题/简介这类纯文本字段的双语拼接（无法插入块级元素）
   var TITLE_INLINE_STYLE = 'font-size:0.85em;font-weight:400;color:#57606a';
   function joinTitle(src, dst) {
-    if (CFG.titleFormat === 'text') return src + '\n译：' + dst;   // 兜底：换行 + 标记，任何渲染器都能看出哪句是译文
-    return src + '<br><span style="' + TITLE_INLINE_STYLE + '">' + dst + '</span>';
+    if (CFG.titleFormat === 'html') return src + '<br><span style="' + TITLE_INLINE_STYLE + '">' + dst + '</span>';
+    // line：两个空格 + 换行 = Markdown 硬换行（单靠 \n 是软换行，会被折叠成空格）
+    return src + '  \n译：' + dst;
   }
 
   /* ============================ 工具 ============================ */
