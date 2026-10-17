@@ -1,15 +1,25 @@
-#!name=GitHubPro
-#!desc=GitHub解锁永久订阅.GitHub 1.142.1除了Ai功能，其他功能都可用.
-#!date=2026-01-21
-#!category=GitHubPro
-#!author=baby[https://github.com/Yu9191]
-#!homepage=https://github.com/IamNewHands/my-loon-scripts/tree/main/loon/GitHubPro
-#!icon=https://raw.githubusercontent.com/BOBOLAOSHIV587/Rules/main/Icons/AppIcons/Image/App/GitHub.png
-#!openUrl=https://apps.apple.com/app/id1477376905
+#!name = GitHubPro
+#!desc = GitHub 客户端增强：解锁订阅 + README/issue/Release 正文翻译（双语或纯译文）。解锁部分原作者 baby；翻译走 Google 免费端点，无需密钥。
+#!date = 2026-10-17
+#!category = GitHubPro
+#!author = baby[https://github.com/Yu9191] / IamNewHands
+#!homepage = https://github.com/IamNewHands/my-loon-scripts/tree/main/loon/GitHubPro
+#!icon = https://raw.githubusercontent.com/BOBOLAOSHIV587/Rules/main/Icons/AppIcons/Image/App/GitHub.png
+#!openUrl = https://apps.apple.com/app/id1477376905
+
+[Argument]
+Enable = switch,true,tag=翻译,desc=关闭后只保留原有解锁功能
+Mode = select,"bilingual","pure",tag=翻译,desc=bilingual=原文与译文并列；pure=只显示译文
+TargetLang = select,"zh-CN","zh-TW","en","ja",tag=翻译,desc=译文目标语言
+TranslateReadme = switch,true,tag=翻译范围,desc=仓库首页 README 正文
+TranslateIssue = switch,true,tag=翻译范围,desc=issue/PR 正文与评论
+TranslateRelease = switch,false,tag=翻译范围,desc=Release 说明
+Debug = switch,false,tag=调试,desc=在 Loon 脚本日志中输出执行信息
 
 [Script]
-# > GitHub解锁永久订阅
-http-response https://api.github.com/graphql script-path=https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPro/GithubPro.js, requires-body=true, timeout=60, tag=GithubPro
+# > GitHub 解锁（原作者 baby）
+# > README / issue / Release 翻译
+http-response ^https:\/\/api\.github\.com\/graphql script-path=https://raw.githubusercontent.com/IamNewHands/my-loon-scripts/main/loon/GitHubPro/GithubPro.js, requires-body=true, timeout=60, argument=[{Enable},{Mode},{TargetLang},{TranslateReadme},{TranslateIssue},{TranslateRelease},{Debug}], tag=GithubPro
 
 [MITM]
 hostname = api.github.com
