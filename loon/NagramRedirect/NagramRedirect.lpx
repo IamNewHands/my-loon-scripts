@@ -1,0 +1,14 @@
+#!name=Nagram外链跳转
+#!desc=将 t.me 链接跳转到 Nagram。改用 nagram:// 专属 scheme，避免与官方 Telegram 抢占 tg:// 导致跳到官方客户端
+#!author=ddgksf2013（原版） / IamNewHands（改跳转目标）
+#!icon=https://github.com/Toperlock/Quantumult/raw/main/icon/Doraemon/Doraemon-1006.png
+#!tag=ddgksf2013
+#!attention=url scheme from@sooyaaabo
+#!tgchannel=https://t.me/ddgksf2021
+#!moduleUrl=https://ddgksf2013.top/module/Redirect2Ng.sgmodule
+
+[Rewrite]
+^https?:\/\/t.me\/(.+) nagram://resolve?domain=$1 307
+
+[MITM]
+hostname = t.me
